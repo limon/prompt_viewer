@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+
+.prompt_viewer_thumbs/
+prompt_viewer.sqlite3
+prompt_viewer.sqlite3-shm
+prompt_viewer.sqlite3-wal
+
+photos/
+
+.DS_Store
+.codex

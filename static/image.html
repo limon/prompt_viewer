@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Prompt Viewer Image</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body class="imagePage">
+    <header class="viewerBar">
+      <a id="backLink" class="buttonLink" href="/">Gallery</a>
+      <button id="prevImage" type="button">Previous</button>
+      <span id="positionLabel"></span>
+      <button id="nextImage" type="button">Next</button>
+      <div id="thumbNav" class="thumbNav" aria-label="Image navigation"></div>
+      <button id="sizeMode" type="button" aria-pressed="false">Original size</button>
+    </header>
+
+    <main class="viewerMain">
+      <section class="viewerImageArea">
+        <div id="previewFrame" class="viewerPreviewFrame">
+          <img id="previewImage" class="viewerPreview" alt="">
+        </div>
+      </section>
+
+      <section id="detail" class="viewerDetail"></section>
+    </main>
+
+    <script src="/static/image.js"></script>
+  </body>
+</html>

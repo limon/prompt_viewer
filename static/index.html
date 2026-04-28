@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Prompt Viewer</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Prompt Viewer</h1>
+        <p id="count">Loading images...</p>
+      </div>
+      <form id="filters" class="filters">
+        <input id="search" type="search" placeholder="Search filename, prompt, model, LoRA, source">
+        <select id="source">
+          <option value="">All sources</option>
+          <option value="comfyui">comfyui</option>
+        </select>
+        <button type="submit">Search</button>
+        <button id="rescan" type="button">Rescan</button>
+      </form>
+    </header>
+
+    <main>
+      <section id="grid" class="grid" aria-live="polite"></section>
+      <nav class="pager">
+        <button id="prev" type="button">Previous</button>
+        <span id="pageLabel">Page 1</span>
+        <button id="next" type="button">Next</button>
+      </nav>
+    </main>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
