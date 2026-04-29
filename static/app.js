@@ -112,6 +112,16 @@ function clearPreviewUrls() {
   state.previewUrls = new Map();
 }
 
+function prunePreviewUrls() {
+  const activeKeys = new Set(state.uploadFiles.map(fileKey));
+  for (const [key, url] of state.previewUrls.entries()) {
+    if (!activeKeys.has(key)) {
+      URL.revokeObjectURL(url);
+      state.previewUrls.delete(key);
+    }
+  }
+}
+
 function previewUrl(file) {
   const key = fileKey(file);
   let url = state.previewUrls.get(key);
@@ -196,11 +206,12 @@ function renderUploadList() {
         status = inspected
           ? hasXmp
             ? "Will use image metadata"
-            : "Prompt required; date/model will be filled automatically"
+            : "Prompt optional; date/model will be filled automatically"
           : "Checking metadata...";
       }
       return `
         <div class="uploadItem">
+          <button class="removeUpload" type="button" data-remove-key="${escapeHtml(key)}" aria-label="Remove ${escapeHtml(file.name)}">×</button>
           <img class="uploadThumb" src="${escapeHtml(previewUrl(file))}" alt="">
           <div>
             ${
@@ -219,6 +230,15 @@ function renderUploadList() {
     .join("");
 }
 
+function removeUploadFile(key) {
+  state.uploadFiles = state.uploadFiles.filter((file) => fileKey(file) !== key);
+  state.inspectItems.delete(key);
+  const url = state.previewUrls.get(key);
+  if (url) URL.revokeObjectURL(url);
+  state.previewUrls.delete(key);
+  renderUploadList();
+}
+
 async function inspectChatgptFiles(files) {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
@@ -235,12 +255,17 @@ async function inspectChatgptFiles(files) {
   renderUploadList();
 }
 
-async function setUploadFiles(files) {
-  clearPreviewUrls();
-  state.uploadFiles = Array.from(files);
-  state.inspectItems = new Map();
+async function addUploadFiles(files) {
+  const existing = new Set(state.uploadFiles.map(fileKey));
+  const additions = Array.from(files).filter((file) => !existing.has(fileKey(file)));
+  if (!additions.length) {
+    renderUploadList();
+    return;
+  }
+  state.uploadFiles = [...state.uploadFiles, ...additions];
+  prunePreviewUrls();
   renderUploadList();
-  const chatgptFiles = state.uploadFiles.filter((file) => uploadKind(file) === "chatgpt");
+  const chatgptFiles = additions.filter((file) => uploadKind(file) === "chatgpt");
   if (chatgptFiles.length) {
     await inspectChatgptFiles(chatgptFiles);
   }
@@ -283,8 +308,10 @@ sourceTabs.addEventListener("click", (event) => {
 });
 
 fileInput.addEventListener("change", () => {
-  setUploadFiles(fileInput.files).catch((error) => {
+  addUploadFiles(fileInput.files).catch((error) => {
     uploadList.innerHTML = `<p class="errorBox">${escapeHtml(error.message)}</p>`;
+  }).finally(() => {
+    fileInput.value = "";
   });
 });
 
@@ -300,9 +327,15 @@ dropZone.addEventListener("dragleave", () => {
 dropZone.addEventListener("drop", (event) => {
   event.preventDefault();
   dropZone.classList.remove("dragging");
-  setUploadFiles(event.dataTransfer.files).catch((error) => {
+  addUploadFiles(event.dataTransfer.files).catch((error) => {
     uploadList.innerHTML = `<p class="errorBox">${escapeHtml(error.message)}</p>`;
   });
+});
+
+uploadList.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-remove-key]");
+  if (!button) return;
+  removeUploadFile(button.dataset.removeKey);
 });
 
 uploadButton.addEventListener("click", async () => {
@@ -347,9 +380,6 @@ uploadButton.addEventListener("click", async () => {
         const title = (titles.get(fileKey(file)) || file.name).trim() || file.name;
         if (!inspected) {
           throw new Error(`Metadata check is still running for ${file.name}`);
-        }
-        if (!inspected?.has_xmp && !prompt.trim()) {
-          throw new Error(`Prompt required for ${file.name}`);
         }
         return {
           filename: file.name,

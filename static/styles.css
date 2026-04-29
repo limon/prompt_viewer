@@ -143,9 +143,9 @@ main {
 
 .uploadItem {
   display: grid;
-  grid-template-columns: 74px minmax(180px, 1fr) minmax(260px, 2fr);
+  grid-template-columns: 28px 74px minmax(180px, 1fr) minmax(260px, 2fr);
   gap: 10px;
-  align-items: start;
+  align-items: center;
   border: 1px solid #dce1e8;
   border-radius: 8px;
   background: #ffffff;
@@ -159,6 +159,7 @@ main {
   border-radius: 6px;
   background: #e8ecf2;
   object-fit: cover;
+  object-position: center 25%;
 }
 
 .uploadItem strong,
@@ -247,6 +248,29 @@ main {
   padding: 0 8px;
 }
 
+.removeUpload {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-color: transparent;
+  border-radius: 50%;
+  background: transparent;
+  color: #667084;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.removeUpload:hover,
+.removeUpload:focus {
+  border-color: #ffd2d2;
+  background: #fff0f0;
+  color: #a93b3b;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -269,6 +293,7 @@ main {
   width: 100%;
   height: 180px;
   object-fit: cover;
+  object-position: center 25%;
   background: #e8ecf2;
 }
 
@@ -395,6 +420,7 @@ main {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center 25%;
   display: block;
 }
 
@@ -597,16 +623,25 @@ main {
   }
 
   .uploadItem {
-    grid-template-columns: 62px 1fr;
+    grid-template-columns: 28px 62px 1fr;
+    align-items: center;
   }
 
   .uploadItem textarea {
-    grid-column: 1 / -1;
+    grid-column: 2 / -1;
+  }
+
+  .uploadMetadata {
+    grid-column: 2 / -1;
   }
 
   .uploadThumb {
     width: 62px;
     height: 62px;
+  }
+
+  .removeUpload {
+    grid-row: 1;
   }
 
   main {

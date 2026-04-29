@@ -355,6 +355,48 @@ def test_chatgpt_upload_existing_xmp_title_update_preserves_metadata(_images: Te
             raise AssertionError(f"Existing-XMP upload did not preserve metadata: {xmp}")
 
 
+def test_chatgpt_upload_allows_empty_prompt(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260407_080910_empty_prompt.png"
+        create_png(source)
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Empty Prompt Upload",
+                    "prompt": "",
+                    "generated_at": "2026-04-07T08:09:10+08:00",
+                    "model": "image2",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/chatgpt",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"ChatGPT empty-prompt upload failed: {response.text}")
+        target = app.CHATGPT_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Empty Prompt Upload",
+            "prompt": "",
+            "generated_at": "2026-04-07T08:09:10+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Empty prompt was not preserved as empty string: {xmp}")
+        with sqlite3.connect(app.DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                "SELECT title, longest_prompt_text FROM images"
+            ).fetchone()
+        if row["title"] != "Empty Prompt Upload" or row["longest_prompt_text"] is not None:
+            raise AssertionError(f"Empty prompt upload was indexed incorrectly: {dict(row)}")
+
+
 def test_chatgpt_named_fixture_upload(images: TestImages) -> None:
     reset_state()
     source = images.chatgpt[0]
@@ -403,6 +445,22 @@ def test_comfyui_upload_parses_metadata(images: TestImages) -> None:
         model_count = conn.execute("SELECT COUNT(*) FROM models").fetchone()[0]
     if source_value != "comfyui" or model_count <= 0:
         raise AssertionError("ComfyUI upload did not parse metadata")
+
+
+def test_comfyui_filename_date_parser(images: TestImages) -> None:
+    reset_state()
+    target = app.COMFY_ROOT / "ComfyUI 2026-04-08 09_10_11.png"
+    shutil.copy2(images.comfyui[0], target)
+    scan = app.scan_photos()
+    if scan != {"scanned": 1, "deleted": 0}:
+        raise AssertionError(f"Unexpected ComfyUI date scan result: {scan}")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT source, generated_at FROM images"
+        ).fetchone()
+    if row["source"] != "comfyui" or not row["generated_at"].startswith("2026-04-08T09:10:11"):
+        raise AssertionError(f"ComfyUI filename date was not parsed: {dict(row)}")
 
 
 def test_default_title_and_title_search(images: TestImages) -> None:
@@ -494,8 +552,10 @@ def main() -> int:
         test_chatgpt_scan_restore_and_delete,
         test_chatgpt_upload_writes_xmp_and_overwrites,
         test_chatgpt_upload_existing_xmp_title_update_preserves_metadata,
+        test_chatgpt_upload_allows_empty_prompt,
         test_chatgpt_named_fixture_upload,
         test_comfyui_upload_parses_metadata,
+        test_comfyui_filename_date_parser,
         test_default_title_and_title_search,
         test_metadata_patch_chatgpt_and_comfyui_prompt_rejection,
     )

@@ -530,16 +530,21 @@ def write_xmp(
 def parse_comfy_png(path: Path) -> dict[str, Any]:
     chunks = read_png_text_chunks(path)
     xmp = read_xmp(path) or {}
+    generated_at = parse_generated_at_from_filename(path)
     prompt = load_comfy_json(chunks, "prompt")
     if prompt is None:
         raise ValueError("No ComfyUI 'prompt' metadata chunk found in PNG.")
     workflow = load_comfy_json(chunks, "workflow")
     return {
-        "metadata_keys": sorted(chunks),
+        "metadata_keys": [
+            *sorted(chunks),
+            *(["filename:generated_at"] if generated_at else []),
+        ],
         "models": extract_models(prompt),
         "loras": extract_loras(prompt, workflow),
         "longest_prompt": extract_longest_prompt(prompt),
         "raw_metadata": chunks,
+        "generated_at": generated_at,
         "title": xmp.get("title") or path.name,
     }
 

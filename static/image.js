@@ -44,6 +44,14 @@ function fmtGenerated(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function fmtSizeKb(bytes) {
+  const value = Number(bytes);
+  if (!Number.isFinite(value)) return "-";
+  return `${(value / 1024).toLocaleString(undefined, {
+    maximumFractionDigits: value < 1024 * 10 ? 1 : 0,
+  })} KB`;
+}
+
 function listParams(page = state.page) {
   const params = new URLSearchParams({
     page,
@@ -133,6 +141,7 @@ function renderThumbNav() {
 function renderDetail(item) {
   const prompt = item.longest_prompt_detail?.text || "";
   const title = item.title || item.file_name;
+  const displayDate = item.generated_at ? fmtGenerated(item.generated_at) : fmtDate(item.mtime);
   document.title = `${title} - Prompt Viewer`;
   previewImage.src = item.media_url;
 
@@ -148,14 +157,10 @@ function renderDetail(item) {
     ${item.parse_error ? `<div class="errorBox">${escapeHtml(item.parse_error)}</div>` : ""}
     <dl class="kv">
       <dt>Source</dt><dd>${escapeHtml(item.source)}</dd>
-      <dt>Parser</dt><dd>${escapeHtml(item.parser || "-")}</dd>
-      <dt>File</dt><dd>${escapeHtml(item.file_name)}</dd>
       <dt>Path</dt><dd>${escapeHtml(item.relative_path)}</dd>
       <dt>Dimensions</dt><dd>${escapeHtml(item.width || "?")} x ${escapeHtml(item.height || "?")}</dd>
-      <dt>Size</dt><dd>${escapeHtml(item.size_bytes)} bytes</dd>
-      <dt>Generated</dt><dd>${escapeHtml(fmtGenerated(item.generated_at))}</dd>
-      <dt>Modified</dt><dd>${escapeHtml(fmtDate(item.mtime))}</dd>
-      <dt>Metadata keys</dt><dd>${escapeHtml(item.metadata_keys.join(", ") || "none")}</dd>
+      <dt>Size</dt><dd>${escapeHtml(fmtSizeKb(item.size_bytes))}</dd>
+      <dt>Date</dt><dd>${escapeHtml(displayDate)}</dd>
     </dl>
     <h2 class="sectionTitle">Prompt</h2>
     ${
@@ -172,14 +177,14 @@ function renderDetail(item) {
     }
     <h2 class="sectionTitle">Models</h2>
     ${renderList(item.models, "model")}
-    <h2 class="sectionTitle">LoRAs</h2>
-    ${renderList(item.loras, "lora")}
-    <h2 class="sectionTitle">Raw Metadata Keys</h2>
-    <ul class="list">
-      ${Object.keys(item.raw_metadata)
-        .map((key) => `<li><strong>${escapeHtml(key)}</strong></li>`)
-        .join("") || "<li>None</li>"}
-    </ul>
+    ${
+      item.source === "comfyui"
+        ? `
+          <h2 class="sectionTitle">LoRAs</h2>
+          ${renderList(item.loras, "lora")}
+        `
+        : ""
+    }
   `;
   bindInlineEditors(item);
   updateSizeMode();
