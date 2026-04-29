@@ -52,6 +52,24 @@ function fmtGenerated(value) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
+function fmtDateOnlyFromSeconds(seconds) {
+  if (!seconds) return "-";
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) ? "-" : date.toISOString().slice(0, 10);
+}
+
+function fmtDateOnlyFromGenerated(value) {
+  if (!value) return "-";
+  const text = String(value);
+  const match = text.match(/(20\d{2})\D*(\d{1,2})\D*(\d{1,2})/);
+  if (match) {
+    const [, year, month, day] = match;
+    return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "-" : date.toISOString().slice(0, 10);
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -80,15 +98,18 @@ function renderGrid(items) {
   grid.innerHTML = items
     .map((item) => {
       const statusClass = item.parse_status === "ok" ? "" : " error";
-      const displayDate = item.generated_at ? fmtGenerated(item.generated_at) : fmtDate(item.mtime);
+      const sourceClass = item.parse_status === "ok" ? ` ${escapeHtml(item.source)}` : "";
+      const displayDate = item.generated_at
+        ? fmtDateOnlyFromGenerated(item.generated_at)
+        : fmtDateOnlyFromSeconds(item.mtime);
       return `
         <a class="card" href="${imageHref(item.id)}">
           <img class="thumb" src="${item.thumb_url}" alt="">
           <div class="meta">
             <p class="name" title="${escapeHtml(item.relative_path)}">${escapeHtml(item.title || item.file_name)}</p>
             <div class="sub">
-              <span class="badge${statusClass}">${escapeHtml(item.source)}</span>
-              <span>${escapeHtml(displayDate)}</span>
+              <span class="badge${sourceClass}${statusClass}">${escapeHtml(item.source)}</span>
+              <span class="cardDate">${escapeHtml(displayDate)}</span>
             </div>
           </div>
         </a>
@@ -179,7 +200,7 @@ function renderUploadList() {
       const titleValue = currentTitles.get(key) ?? defaultTitle;
       const promptValue = currentPrompts.get(key) ?? "";
       const titleDisplay =
-        kind === "chatgpt" && inspected
+        kind
           ? `
             <label class="uploadTitleField">
               <input
@@ -352,6 +373,17 @@ uploadButton.addEventListener("click", async () => {
     if (comfyFiles.length) {
       const comfyData = new FormData();
       comfyFiles.forEach((file) => comfyData.append("files", file));
+      const titles = new Map(
+        Array.from(uploadList.querySelectorAll("[data-title-key]")).map((input) => [
+          input.dataset.titleKey,
+          input.value,
+        ]),
+      );
+      const metadata = comfyFiles.map((file) => ({
+        filename: file.name,
+        title: (titles.get(fileKey(file)) || file.name).trim() || file.name,
+      }));
+      comfyData.append("metadata", JSON.stringify(metadata));
       const response = await fetch("/api/uploads/comfyui", {
         method: "POST",
         body: comfyData,

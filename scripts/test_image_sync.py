@@ -434,17 +434,31 @@ def test_comfyui_upload_parses_metadata(images: TestImages) -> None:
     reset_state()
     source = images.comfyui[0]
     client = TestClient(app.app)
+    metadata = json.dumps(
+        [
+            {
+                "filename": source.name,
+                "title": "Uploaded ComfyUI Title",
+            }
+        ]
+    )
     response = client.post(
         "/api/uploads/comfyui",
         files=[("files", (source.name, source.read_bytes(), "image/png"))],
+        data={"metadata": metadata},
     )
     if response.status_code != 200:
         raise AssertionError(f"ComfyUI upload failed: {response.text}")
     with sqlite3.connect(app.DB_PATH) as conn:
-        source_value = conn.execute("SELECT source FROM images").fetchone()[0]
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT source, title FROM images").fetchone()
         model_count = conn.execute("SELECT COUNT(*) FROM models").fetchone()[0]
-    if source_value != "comfyui" or model_count <= 0:
+    if row["source"] != "comfyui" or row["title"] != "Uploaded ComfyUI Title" or model_count <= 0:
         raise AssertionError("ComfyUI upload did not parse metadata")
+    target = app.COMFY_ROOT / source.name
+    xmp = app.read_xmp(target)
+    if not xmp or xmp.get("title") != "Uploaded ComfyUI Title":
+        raise AssertionError(f"ComfyUI upload did not write title XMP: {xmp}")
 
 
 def test_comfyui_filename_date_parser(images: TestImages) -> None:

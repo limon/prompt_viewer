@@ -45,7 +45,7 @@ DB_PATH = Path(
     os.environ.get("PROMPT_VIEWER_DB_PATH", BASE_DIR / "prompt_viewer.sqlite3")
 ).resolve()
 STATIC_ROOT = BASE_DIR / "static"
-THUMB_MAX_EDGE = 480
+THUMB_MAX_EDGE = 720
 
 SOURCE_COMFYUI = "comfyui"
 SOURCE_CHATGPT = "chatgpt"
@@ -247,7 +247,7 @@ def generate_thumbnail(path: Path, image_id: int) -> None:
         image.thumbnail((THUMB_MAX_EDGE, THUMB_MAX_EDGE))
         if image.mode not in {"RGB", "L"}:
             image = image.convert("RGB")
-        image.save(tmp, "JPEG", quality=86, optimize=True)
+        image.save(tmp, "JPEG", quality=92, optimize=True, progressive=True, subsampling=0)
     tmp.replace(target)
 
 
@@ -1046,7 +1046,11 @@ async def inspect_chatgpt_uploads(files: list[UploadFile] = File(...)) -> dict[s
 
 
 @app.post("/api/uploads/comfyui")
-async def upload_comfyui(files: list[UploadFile] = File(...)) -> dict[str, Any]:
+async def upload_comfyui(
+    files: list[UploadFile] = File(...),
+    metadata: str | None = Form(None),
+) -> dict[str, Any]:
+    submitted = parse_upload_metadata(metadata)
     items = []
     for upload in files:
         name = safe_upload_name(upload.filename or "")
@@ -1054,6 +1058,9 @@ async def upload_comfyui(files: list[UploadFile] = File(...)) -> dict[str, Any]:
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG file")
         target = COMFY_ROOT / name
         await save_upload_file(upload, target)
+        title = submitted.get(name, {}).get("title", "").strip()
+        if title:
+            write_xmp(target, title=title)
         image_id = upsert_image(target)
         items.append(upload_result(target, image_id))
     return {"items": items}

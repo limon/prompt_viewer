@@ -207,6 +207,14 @@ function bindInlineEditors(item) {
   detail.querySelectorAll(".editableValue").forEach((element) => {
     element.addEventListener("click", () => startInlineEdit(element, item));
   });
+  const pendingField = detail.dataset.pendingEditField;
+  if (pendingField) {
+    delete detail.dataset.pendingEditField;
+    const element = detail.querySelector(`.editableValue[data-field="${pendingField}"]`);
+    if (element) {
+      requestAnimationFrame(() => startInlineEdit(element, item));
+    }
+  }
 }
 
 function fieldValue(item, field) {
@@ -223,8 +231,13 @@ function renderEditorControl(field, value) {
 }
 
 function startInlineEdit(element, item) {
-  if (detail.querySelector(".inlineEditor")) return;
   const field = element.dataset.field;
+  const activeEditor = detail.querySelector(".inlineEditor");
+  if (activeEditor) {
+    detail.dataset.pendingEditField = field;
+    renderDetail(state.item || item);
+    return;
+  }
   const value = fieldValue(item, field);
   const editor = document.createElement("div");
   editor.className = `inlineEditor ${field === "title" ? "titleInlineEditor" : ""}`;
