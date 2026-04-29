@@ -95,6 +95,19 @@ function renderList(items, field) {
   `;
 }
 
+function renderXmpDebug(metadata) {
+  const entries = Object.entries(metadata || {}).filter(([, value]) => value !== "");
+  const content = entries.length
+    ? `<pre class="debugMetadata">${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>`
+    : '<p class="listEmpty">None</p>';
+  return `
+    <details class="debugDetails">
+      <summary>XMP Metadata</summary>
+      ${content}
+    </details>
+  `;
+}
+
 function updateSizeMode() {
   document.body.classList.toggle("originalSizeMode", state.originalSize);
   previewImage.classList.toggle("originalSize", state.originalSize);
@@ -193,6 +206,7 @@ function renderDetail(item) {
         `
         : ""
     }
+    ${renderXmpDebug(item.xmp_metadata)}
   `;
   bindInlineEditors(item);
   updateSizeMode();

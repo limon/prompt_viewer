@@ -1308,6 +1308,7 @@ def image_detail(image_id: int) -> dict[str, Any]:
     detail["models"] = models
     detail["loras"] = loras
     detail["raw_metadata"] = raw_metadata
+    detail["xmp_metadata"] = read_xmp(Path(row["absolute_path"])) or {}
     return detail
 
 

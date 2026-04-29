@@ -691,6 +691,34 @@ main {
   color: #3d4655;
 }
 
+.debugDetails {
+  margin-top: 20px;
+  border-top: 1px solid #e2e7ee;
+  padding-top: 12px;
+  font-size: 13px;
+}
+
+.debugDetails summary {
+  width: fit-content;
+  cursor: pointer;
+  color: #3d4655;
+  font-weight: 650;
+}
+
+.debugMetadata {
+  margin: 10px 0 0;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #e2e7ee;
+  border-radius: 8px;
+  background: #fafbfc;
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .list {
   margin: 0;
   padding: 0;
