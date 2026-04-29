@@ -1,0 +1,14 @@
+services:
+  prompt-viewer:
+    image: limon/prompt_viewer:latest
+    ports:
+      - "${PROMPT_VIEWER_HOST_PORT:-8888}:8888"
+    environment:
+      PROMPT_VIEWER_PHOTO_ROOT: /data/photos
+      PROMPT_VIEWER_THUMB_ROOT: /data/thumbs
+      PROMPT_VIEWER_DB_PATH: /data/db/prompt_viewer.sqlite3
+    volumes:
+      - ./photos:/data/photos
+      - ./.prompt_viewer_thumbs:/data/thumbs
+      - ./docker-data:/data/db
+    restart: unless-stopped

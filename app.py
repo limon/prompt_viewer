@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import shutil
 import sqlite3
@@ -34,11 +35,15 @@ from comfy_png_summary import (
 
 
 BASE_DIR = Path(__file__).resolve().parent
-PHOTO_ROOT = BASE_DIR / "photos"
+PHOTO_ROOT = Path(os.environ.get("PROMPT_VIEWER_PHOTO_ROOT", BASE_DIR / "photos")).resolve()
 COMFY_ROOT = PHOTO_ROOT / "comfyui"
 CHATGPT_ROOT = PHOTO_ROOT / "chatgpt"
-THUMB_ROOT = BASE_DIR / ".prompt_viewer_thumbs"
-DB_PATH = BASE_DIR / "prompt_viewer.sqlite3"
+THUMB_ROOT = Path(
+    os.environ.get("PROMPT_VIEWER_THUMB_ROOT", BASE_DIR / ".prompt_viewer_thumbs")
+).resolve()
+DB_PATH = Path(
+    os.environ.get("PROMPT_VIEWER_DB_PATH", BASE_DIR / "prompt_viewer.sqlite3")
+).resolve()
 STATIC_ROOT = BASE_DIR / "static"
 THUMB_MAX_EDGE = 480
 

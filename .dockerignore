@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.git/
+.prompt_viewer_thumbs/
+docker-data/
+photos/
+prompt_viewer.sqlite3*
+test/
+*.png
+*.json

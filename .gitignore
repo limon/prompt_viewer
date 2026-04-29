@@ -1,7 +1,9 @@
 __pycache__/
 *.py[cod]
+.venv/
 
 .prompt_viewer_thumbs/
+docker-data/
 prompt_viewer.sqlite3
 prompt_viewer.sqlite3-shm
 prompt_viewer.sqlite3-wal

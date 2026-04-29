@@ -17,20 +17,21 @@
       devShells = forAllSystems (system:
         let
           pkgs = import nixpkgs { inherit system; };
-          python = pkgs.python313.withPackages (ps: [
-            ps.fastapi
-            ps.httpx
-            ps.pillow
-            ps.python-multipart
-            ps.uvicorn
-            ps.watchdog
-          ]);
         in
         {
           default = pkgs.mkShell {
             packages = [
-              python
+              pkgs.python313
             ];
+            shellHook = ''
+              if [ ! -d .venv ] || [ requirements.lock.txt -nt .venv/.requirements.lock.stamp ]; then
+                python -m venv .venv
+                .venv/bin/python -m pip install -r requirements.lock.txt
+                cp requirements.lock.txt .venv/.requirements.lock.stamp
+              fi
+              export VIRTUAL_ENV="$PWD/.venv"
+              export PATH="$VIRTUAL_ENV/bin:$PATH"
+            '';
           };
         });
     };
