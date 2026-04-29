@@ -11,6 +11,7 @@ const state = {
   items: [],
   selectedIndex: -1,
   originalSize: false,
+  item: null,
 };
 
 const backLink = document.querySelector("#backLink");
@@ -35,6 +36,12 @@ function escapeHtml(value) {
 function fmtDate(seconds) {
   if (!seconds) return "-";
   return new Date(seconds * 1000).toLocaleString();
+}
+
+function fmtGenerated(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function listParams(page = state.page) {
@@ -106,7 +113,7 @@ function renderThumbNav() {
         <a
           class="thumbNavItem${current ? " current" : ""}"
           href="${imageHref(item.id)}"
-          title="${escapeHtml(item.file_name)}"
+          title="${escapeHtml(item.title || item.file_name)}"
           aria-current="${current ? "true" : "false"}"
         >
           <img src="${item.thumb_url}" alt="">
@@ -123,33 +130,46 @@ function renderThumbNav() {
   });
 }
 
-async function loadDetail(id) {
-  detail.innerHTML = '<p class="empty">Loading...</p>';
-  const response = await fetch(`/api/images/${id}`);
-  if (!response.ok) {
-    detail.innerHTML = '<p class="errorBox">Image detail failed to load.</p>';
-    return;
-  }
-
-  const item = await response.json();
+function renderDetail(item) {
   const prompt = item.longest_prompt_detail?.text || "";
-  document.title = `${item.file_name} - Prompt Viewer`;
+  const title = item.title || item.file_name;
+  document.title = `${title} - Prompt Viewer`;
   previewImage.src = item.media_url;
 
   detail.innerHTML = `
-    <h1>${escapeHtml(item.file_name)}</h1>
+    <div class="metadataHeader">
+      <button
+        id="titleEditable"
+        class="editableValue titleEditable"
+        type="button"
+        data-field="title"
+      >${escapeHtml(title)}</button>
+    </div>
     ${item.parse_error ? `<div class="errorBox">${escapeHtml(item.parse_error)}</div>` : ""}
     <dl class="kv">
       <dt>Source</dt><dd>${escapeHtml(item.source)}</dd>
       <dt>Parser</dt><dd>${escapeHtml(item.parser || "-")}</dd>
+      <dt>File</dt><dd>${escapeHtml(item.file_name)}</dd>
       <dt>Path</dt><dd>${escapeHtml(item.relative_path)}</dd>
       <dt>Dimensions</dt><dd>${escapeHtml(item.width || "?")} x ${escapeHtml(item.height || "?")}</dd>
       <dt>Size</dt><dd>${escapeHtml(item.size_bytes)} bytes</dd>
+      <dt>Generated</dt><dd>${escapeHtml(fmtGenerated(item.generated_at))}</dd>
       <dt>Modified</dt><dd>${escapeHtml(fmtDate(item.mtime))}</dd>
       <dt>Metadata keys</dt><dd>${escapeHtml(item.metadata_keys.join(", ") || "none")}</dd>
     </dl>
-    <h2 class="sectionTitle">Longest Prompt</h2>
-    <p class="prompt">${escapeHtml(prompt || "None")}</p>
+    <h2 class="sectionTitle">Prompt</h2>
+    ${
+      item.source === "chatgpt"
+        ? `
+          <button
+            id="promptEditable"
+            class="editableValue prompt editablePrompt"
+            type="button"
+            data-field="prompt"
+          >${escapeHtml(prompt || "None")}</button>
+        `
+        : `<p class="prompt">${escapeHtml(prompt || "None")}</p>`
+    }
     <h2 class="sectionTitle">Models</h2>
     ${renderList(item.models, "model")}
     <h2 class="sectionTitle">LoRAs</h2>
@@ -161,7 +181,117 @@ async function loadDetail(id) {
         .join("") || "<li>None</li>"}
     </ul>
   `;
+  bindInlineEditors(item);
   updateSizeMode();
+}
+
+async function loadDetail(id) {
+  detail.innerHTML = '<p class="empty">Loading...</p>';
+  const response = await fetch(`/api/images/${id}`);
+  if (!response.ok) {
+    detail.innerHTML = '<p class="errorBox">Image detail failed to load.</p>';
+    return;
+  }
+
+  const item = await response.json();
+  state.item = item;
+  renderDetail(item);
+}
+
+function bindInlineEditors(item) {
+  detail.querySelectorAll(".editableValue").forEach((element) => {
+    element.addEventListener("click", () => startInlineEdit(element, item));
+  });
+}
+
+function fieldValue(item, field) {
+  if (field === "title") return item.title || item.file_name;
+  if (field === "prompt") return item.longest_prompt_detail?.text || "";
+  return "";
+}
+
+function renderEditorControl(field, value) {
+  if (field === "prompt") {
+    return `<textarea class="inlineTextarea">${escapeHtml(value)}</textarea>`;
+  }
+  return `<input class="inlineInput" type="text" value="${escapeHtml(value)}">`;
+}
+
+function startInlineEdit(element, item) {
+  if (detail.querySelector(".inlineEditor")) return;
+  const field = element.dataset.field;
+  const value = fieldValue(item, field);
+  const editor = document.createElement("div");
+  editor.className = `inlineEditor ${field === "title" ? "titleInlineEditor" : ""}`;
+  editor.innerHTML = `
+    ${renderEditorControl(field, value)}
+    <div class="inlineActions">
+      <button type="button" data-action="save">Save</button>
+      <button type="button" data-action="cancel">Cancel</button>
+      <span></span>
+    </div>
+  `;
+  element.replaceWith(editor);
+
+  const input = editor.querySelector("input, textarea");
+  const status = editor.querySelector("span");
+  const saveButton = editor.querySelector('[data-action="save"]');
+  input.focus();
+  input.select();
+
+  const cancel = () => renderDetail(state.item || item);
+  const save = async () => {
+    const nextValue = input.value;
+    if (nextValue === value) {
+      cancel();
+      return;
+    }
+
+    saveButton.disabled = true;
+    status.textContent = "Saving...";
+    try {
+      const response = await fetch(`/api/images/${item.id}/metadata`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: nextValue }),
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || `Save failed: ${response.status}`);
+      }
+      const updated = await response.json();
+      state.item = updated;
+      if (state.selectedIndex >= 0 && state.items[state.selectedIndex]) {
+        state.items[state.selectedIndex] = {
+          ...state.items[state.selectedIndex],
+          title: updated.title,
+          file_name: updated.file_name,
+        };
+      }
+      renderThumbNav();
+      renderDetail(updated);
+    } catch (error) {
+      status.textContent = error.message;
+      saveButton.disabled = false;
+    }
+  };
+
+  editor.querySelector('[data-action="cancel"]').addEventListener("click", cancel);
+  saveButton.addEventListener("click", save);
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      cancel();
+    }
+    if (field === "title" && event.key === "Enter") {
+      event.preventDefault();
+      save();
+    }
+    if (field === "prompt" && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      save();
+    }
+  });
 }
 
 async function loadContext(id) {
@@ -208,6 +338,7 @@ previewImage.addEventListener("click", () => {
   updateSizeMode();
 });
 document.addEventListener("keydown", (event) => {
+  if (event.target.closest("input, textarea")) return;
   if (event.key === "ArrowLeft") move(-1);
   if (event.key === "ArrowRight") move(1);
 });

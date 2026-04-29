@@ -21,6 +21,7 @@
             ps.fastapi
             ps.httpx
             ps.pillow
+            ps.python-multipart
             ps.uvicorn
             ps.watchdog
           ]);

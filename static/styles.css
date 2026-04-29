@@ -15,7 +15,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -32,6 +33,12 @@ button {
 button:disabled {
   color: #8b93a1;
   cursor: default;
+}
+
+button.active {
+  border-color: #23559f;
+  background: #e9f1ff;
+  color: #23559f;
 }
 
 .topbar {
@@ -68,7 +75,8 @@ h1 {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   min-height: 38px;
   border: 1px solid #c8ced8;
@@ -78,8 +86,165 @@ select {
   padding: 0 12px;
 }
 
+textarea {
+  padding: 8px 10px;
+  resize: vertical;
+}
+
 main {
   padding: 22px;
+}
+
+.uploadPanel {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.sourceTabs,
+.uploadControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.sourceTabs button {
+  min-height: 34px;
+}
+
+.dropZone {
+  display: inline-flex;
+  flex: 1 1 300px;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  border: 1px dashed #aab3c2;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4f5a6c;
+  cursor: pointer;
+  padding: 0 14px;
+}
+
+.dropZone.dragging {
+  border-color: #23559f;
+  background: #edf5ff;
+}
+
+.dropZone input {
+  display: none;
+}
+
+.uploadList {
+  display: grid;
+  gap: 8px;
+}
+
+.uploadItem {
+  display: grid;
+  grid-template-columns: 74px minmax(180px, 1fr) minmax(260px, 2fr);
+  gap: 10px;
+  align-items: start;
+  border: 1px solid #dce1e8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.uploadThumb {
+  display: block;
+  width: 74px;
+  height: 74px;
+  border-radius: 6px;
+  background: #e8ecf2;
+  object-fit: cover;
+}
+
+.uploadItem strong,
+.uploadItem em,
+.uploadItem span {
+  display: block;
+}
+
+.uploadItem strong {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.uploadItem span {
+  margin-top: 4px;
+  color: #667084;
+  font-size: 12px;
+}
+
+.uploadType {
+  display: inline-flex;
+  width: fit-content;
+  min-height: 20px;
+  align-items: center;
+  margin-top: 6px;
+  border-radius: 999px;
+  padding: 0 8px;
+  background: #e9f1ff;
+  color: #23559f;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.uploadType.chatgpt {
+  background: #eaf7ef;
+  color: #27643b;
+}
+
+.uploadType.unknown {
+  background: #ffecec;
+  color: #a93b3b;
+}
+
+.uploadItem textarea {
+  width: 100%;
+  min-height: 74px;
+  font-size: 13px;
+}
+
+.uploadMetadata {
+  display: grid;
+  gap: 8px;
+}
+
+.uploadField {
+  display: grid;
+  gap: 4px;
+}
+
+.uploadField span {
+  color: #667084;
+  font-size: 12px;
+}
+
+.uploadField input {
+  font-size: 13px;
+}
+
+.uploadTitleField {
+  display: block;
+}
+
+.uploadTitleField input {
+  min-height: 0;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.uploadTitleField input:hover,
+.uploadTitleField input:focus {
+  border-color: #c8ced8;
+  background: #ffffff;
+  padding: 0 8px;
 }
 
 .grid {
@@ -278,6 +443,71 @@ main {
   overflow-wrap: anywhere;
 }
 
+.metadataHeader {
+  margin-bottom: 12px;
+}
+
+.editableValue {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 4px 6px;
+  color: inherit;
+  text-align: left;
+}
+
+.editableValue:hover,
+.editableValue:focus {
+  border-color: #c8ced8;
+  background: #ffffff;
+}
+
+.titleEditable {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.editablePrompt {
+  white-space: pre-wrap;
+}
+
+.inlineEditor {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.titleInlineEditor {
+  margin-bottom: 12px;
+}
+
+.inlineInput {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.inlineTextarea {
+  min-height: 180px;
+  line-height: 1.45;
+}
+
+.inlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.inlineActions span {
+  color: #667084;
+  font-size: 13px;
+}
+
 .originalSizeMode .viewerMain {
   display: block;
   padding: 12px;
@@ -364,6 +594,19 @@ main {
 
   .filters input {
     grid-column: 1 / -1;
+  }
+
+  .uploadItem {
+    grid-template-columns: 62px 1fr;
+  }
+
+  .uploadItem textarea {
+    grid-column: 1 / -1;
+  }
+
+  .uploadThumb {
+    width: 62px;
+    height: 62px;
   }
 
   main {

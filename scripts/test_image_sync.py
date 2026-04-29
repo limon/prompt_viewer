@@ -6,21 +6,35 @@ from __future__ import annotations
 import shutil
 import sqlite3
 import sys
+import tempfile
+import json
+from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app
+from fastapi.testclient import TestClient
 
 
 TEST_ROOT = app.BASE_DIR / "test"
 
 
-def test_images() -> list[Path]:
+@dataclass(frozen=True)
+class TestImages:
+    comfyui: list[Path]
+    chatgpt: list[Path]
+
+
+def test_images() -> TestImages:
     images = sorted(TEST_ROOT.glob("*.png"))
-    if len(images) < 2:
-        raise AssertionError("Expected at least two PNG files in ./test")
-    return images
+    comfyui = [path for path in images if "comfyui" in path.name.lower()]
+    chatgpt = [path for path in images if "chatgpt" in path.name.lower()]
+    if len(comfyui) < 2:
+        raise AssertionError("Expected at least two ComfyUI PNG files in ./test")
+    if len(chatgpt) < 1:
+        raise AssertionError("Expected at least one ChatGPT PNG file in ./test")
+    return TestImages(comfyui=comfyui, chatgpt=chatgpt)
 
 
 def reset_state() -> None:
@@ -35,8 +49,10 @@ def reset_state() -> None:
             pass
 
     app.init_dirs()
-    for path in app.COMFY_ROOT.glob("*.png"):
-        path.unlink()
+    for root in (app.COMFY_ROOT, app.CHATGPT_ROOT):
+        for path in root.rglob("*"):
+            if path.is_file():
+                path.unlink()
     for path in app.THUMB_ROOT.glob("*"):
         if path.is_file():
             path.unlink()
@@ -65,8 +81,18 @@ def current_comfy_paths() -> set[str]:
     }
 
 
+def current_all_paths() -> set[str]:
+    roots = (app.COMFY_ROOT, app.CHATGPT_ROOT)
+    return {
+        path.relative_to(app.PHOTO_ROOT).as_posix()
+        for root in roots
+        for path in root.rglob("*")
+        if path.is_file()
+    }
+
+
 def assert_db_matches_files() -> None:
-    expected = current_comfy_paths()
+    expected = current_all_paths()
     actual = db_paths()
     if actual != expected:
         raise AssertionError(f"DB paths differ from files: actual={actual}, expected={expected}")
@@ -79,14 +105,45 @@ def assert_model_rows_exist() -> None:
         raise AssertionError("Expected parsed model rows")
 
 
-def test_new_image_addition(images: list[Path]) -> None:
+def create_png(path: Path) -> None:
+    from PIL import Image
+
+    image = Image.new("RGB", (8, 8), (20, 120, 200))
+    image.save(path, "PNG")
+
+
+def create_jpeg(path: Path) -> None:
+    from PIL import Image
+
+    image = Image.new("RGB", (8, 8), (200, 80, 30))
+    image.save(path, "JPEG", quality=90)
+
+
+def insert_png_text(path: Path, key: str, value: str) -> None:
+    data = path.read_bytes()
+    payload = key.encode("latin-1") + b"\x00" + value.encode("utf-8")
+    marker = data.rfind(app.pack_png_chunk(b"IEND", b""))
+    if marker < 0:
+        raise AssertionError("PNG IEND chunk not found")
+    path.write_bytes(data[:marker] + app.pack_png_chunk(b"tEXt", payload) + data[marker:])
+
+
+def jpeg_scan_data(path: Path) -> bytes:
+    segments = app.jpeg_segments(path.read_bytes())
+    for index, (marker, segment) in enumerate(segments):
+        if marker == 0xDA:
+            return segment + segments[index + 1][1]
+    raise AssertionError("JPEG scan segment not found")
+
+
+def test_new_image_addition(images: TestImages) -> None:
     reset_state()
-    copy_to_comfy(images[0])
+    copy_to_comfy(images.comfyui[0])
     first = app.scan_photos()
     if first != {"scanned": 1, "deleted": 0}:
         raise AssertionError(f"Unexpected first scan result: {first}")
 
-    copy_to_comfy(images[1])
+    copy_to_comfy(images.comfyui[1])
     second = app.scan_photos()
     if second != {"scanned": 2, "deleted": 0}:
         raise AssertionError(f"Unexpected second scan result: {second}")
@@ -94,10 +151,10 @@ def test_new_image_addition(images: list[Path]) -> None:
     assert_model_rows_exist()
 
 
-def test_old_image_deletion(images: list[Path]) -> None:
+def test_old_image_deletion(images: TestImages) -> None:
     reset_state()
-    first = copy_to_comfy(images[0])
-    copy_to_comfy(images[1])
+    first = copy_to_comfy(images.comfyui[0])
+    copy_to_comfy(images.comfyui[1])
     scan = app.scan_photos()
     if scan != {"scanned": 2, "deleted": 0}:
         raise AssertionError(f"Unexpected setup scan result: {scan}")
@@ -109,22 +166,338 @@ def test_old_image_deletion(images: list[Path]) -> None:
     assert_db_matches_files()
 
 
-def test_consistency_after_reset(images: list[Path]) -> None:
+def test_consistency_after_reset(images: TestImages) -> None:
     reset_state()
-    for image in images:
+    for image in images.comfyui:
         copy_to_comfy(image)
     scan = app.scan_photos()
-    if scan != {"scanned": len(images), "deleted": 0}:
+    if scan != {"scanned": len(images.comfyui), "deleted": 0}:
         raise AssertionError(f"Unexpected consistency scan result: {scan}")
     assert_db_matches_files()
+
+
+def test_png_xmp_roundtrip_and_chunk_preservation(_images: TestImages) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "xmp.png"
+        create_png(path)
+        insert_png_text(path, "comfy-note", "keep me")
+        app.write_xmp(
+            path,
+            "a quiet test prompt",
+            "2026-04-01T12:34:56+08:00",
+            "image2",
+            "Quiet Title",
+        )
+        xmp = app.read_xmp(path)
+        if xmp != {
+            "title": "Quiet Title",
+            "prompt": "a quiet test prompt",
+            "generated_at": "2026-04-01T12:34:56+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Unexpected PNG XMP: {xmp}")
+        app.write_xmp(path, title="Renamed Title")
+        xmp = app.read_xmp(path)
+        if xmp != {
+            "title": "Renamed Title",
+            "prompt": "a quiet test prompt",
+            "generated_at": "2026-04-01T12:34:56+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Title-only XMP update did not preserve fields: {xmp}")
+        app.write_xmp(path, prompt="updated prompt")
+        xmp = app.read_xmp(path)
+        if xmp != {
+            "title": "Renamed Title",
+            "prompt": "updated prompt",
+            "generated_at": "2026-04-01T12:34:56+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Prompt-only XMP update did not preserve fields: {xmp}")
+        chunks = app.read_png_text_chunks(path)
+        if chunks.get("comfy-note") != "keep me":
+            raise AssertionError("Non-XMP PNG text chunk was not preserved")
+
+
+def test_chatgpt_filename_date_parser(_images: TestImages) -> None:
+    parsed = app.parse_generated_at_from_filename(
+        Path("ChatGPT Image 2026年4月22日 01_06_39.png")
+    )
+    if not parsed or not parsed.startswith("2026-04-22T01:06:39"):
+        raise AssertionError(f"Unexpected parsed ChatGPT filename date: {parsed}")
+
+
+def test_jpeg_xmp_roundtrip_without_reencode(_images: TestImages) -> None:
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "xmp.jpg"
+        create_jpeg(path)
+        before = jpeg_scan_data(path)
+        app.write_xmp(path, "jpeg prompt", "2026-04-02T12:34:56+08:00", "image2", "JPEG Title")
+        after = jpeg_scan_data(path)
+        xmp = app.read_xmp(path)
+        if xmp != {
+            "title": "JPEG Title",
+            "prompt": "jpeg prompt",
+            "generated_at": "2026-04-02T12:34:56+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Unexpected JPEG XMP: {xmp}")
+        if before != after:
+            raise AssertionError("JPEG scan data changed; image was likely re-encoded")
+
+
+def test_chatgpt_scan_restore_and_delete(_images: TestImages) -> None:
+    reset_state()
+    target = app.CHATGPT_ROOT / "20260403_010203_chatgpt.png"
+    create_png(target)
+    app.write_xmp(target, "scan prompt", "2026-04-03T01:02:03+08:00", "image2", "Scan Title")
+    scan = app.scan_photos()
+    if scan != {"scanned": 1, "deleted": 0}:
+        raise AssertionError(f"Unexpected ChatGPT scan result: {scan}")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM images").fetchone()
+        model = conn.execute("SELECT model FROM models").fetchone()[0]
+    if row["source"] != "chatgpt" or row["parser"] != "chatgpt_xmp":
+        raise AssertionError(f"Unexpected ChatGPT row: {dict(row)}")
+    if row["title"] != "Scan Title":
+        raise AssertionError("ChatGPT title was not restored from XMP")
+    if row["longest_prompt_text"] != "scan prompt":
+        raise AssertionError("ChatGPT prompt was not restored from XMP")
+    if row["generated_at"] != "2026-04-03T01:02:03+08:00" or model != "image2":
+        raise AssertionError("ChatGPT generated_at/model were not restored from XMP")
+    target.unlink()
+    scan = app.scan_photos()
+    if scan != {"scanned": 0, "deleted": 1}:
+        raise AssertionError(f"Unexpected ChatGPT delete scan result: {scan}")
+
+
+def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260404_050607_upload.png"
+        create_png(source)
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Uploaded Title",
+                    "prompt": "uploaded prompt",
+                    "generated_at": "2026-04-04T05:06:07+08:00",
+                    "model": "image2",
+                }
+            ]
+        )
+        for _ in range(2):
+            response = client.post(
+                "/api/uploads/chatgpt",
+                files=[("files", (source.name, source.read_bytes(), "image/png"))],
+                data={"metadata": metadata},
+            )
+            if response.status_code != 200:
+                raise AssertionError(f"ChatGPT upload failed: {response.text}")
+        target = app.CHATGPT_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Uploaded Title",
+            "prompt": "uploaded prompt",
+            "generated_at": "2026-04-04T05:06:07+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Unexpected uploaded XMP: {xmp}")
+        with sqlite3.connect(app.DB_PATH) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+            row = conn.execute("SELECT title, longest_prompt_text FROM images").fetchone()
+        if count != 1 or row[0] != "Uploaded Title" or row[1] != "uploaded prompt":
+            raise AssertionError("ChatGPT same-name upload did not upsert correctly")
+
+
+def test_chatgpt_upload_existing_xmp_title_update_preserves_metadata(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260406_070809_existing.png"
+        create_png(source)
+        app.write_xmp(
+            source,
+            "existing prompt",
+            "2026-04-06T07:08:09+08:00",
+            "image2",
+            "Existing Title",
+        )
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Upload Override Title",
+                    "prompt": "ignored prompt",
+                    "generated_at": "2020-01-01T00:00:00+08:00",
+                    "model": "ignored-model",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/chatgpt",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"ChatGPT existing-XMP upload failed: {response.text}")
+        target = app.CHATGPT_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Upload Override Title",
+            "prompt": "existing prompt",
+            "generated_at": "2026-04-06T07:08:09+08:00",
+            "model": "image2",
+        }:
+            raise AssertionError(f"Existing-XMP upload did not preserve metadata: {xmp}")
+
+
+def test_chatgpt_named_fixture_upload(images: TestImages) -> None:
+    reset_state()
+    source = images.chatgpt[0]
+    client = TestClient(app.app)
+    metadata = json.dumps(
+        [
+            {
+                "filename": source.name,
+                "prompt": "fixture prompt",
+                "model": "image2",
+            }
+        ]
+    )
+    response = client.post(
+        "/api/uploads/chatgpt",
+        files=[("files", (source.name, source.read_bytes(), "image/png"))],
+        data={"metadata": metadata},
+    )
+    if response.status_code != 200:
+        raise AssertionError(f"Named ChatGPT fixture upload failed: {response.text}")
+    target = app.CHATGPT_ROOT / app.safe_upload_name(source.name)
+    xmp = app.read_xmp(target)
+    if not xmp or xmp.get("title") != target.name or xmp.get("prompt") != "fixture prompt":
+        raise AssertionError(f"ChatGPT fixture upload did not write expected XMP: {xmp}")
+    if not xmp.get("generated_at", "").startswith("2026-"):
+        raise AssertionError(f"ChatGPT fixture date was not parsed from filename: {xmp}")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT source, longest_prompt_text FROM images").fetchone()
+    if row["source"] != "chatgpt" or row["longest_prompt_text"] != "fixture prompt":
+        raise AssertionError(f"ChatGPT fixture upload was not indexed correctly: {dict(row)}")
+
+
+def test_comfyui_upload_parses_metadata(images: TestImages) -> None:
+    reset_state()
+    source = images.comfyui[0]
+    client = TestClient(app.app)
+    response = client.post(
+        "/api/uploads/comfyui",
+        files=[("files", (source.name, source.read_bytes(), "image/png"))],
+    )
+    if response.status_code != 200:
+        raise AssertionError(f"ComfyUI upload failed: {response.text}")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        source_value = conn.execute("SELECT source FROM images").fetchone()[0]
+        model_count = conn.execute("SELECT COUNT(*) FROM models").fetchone()[0]
+    if source_value != "comfyui" or model_count <= 0:
+        raise AssertionError("ComfyUI upload did not parse metadata")
+
+
+def test_default_title_and_title_search(images: TestImages) -> None:
+    reset_state()
+    source = copy_to_comfy(images.comfyui[0])
+    app.scan_photos()
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id, file_name, title FROM images").fetchone()
+    if row["title"] != source.name or row["file_name"] != source.name:
+        raise AssertionError(f"Default title did not use filename: {dict(row)}")
+    client = TestClient(app.app)
+    response = client.patch(
+        f"/api/images/{row['id']}/metadata",
+        json={"title": "Searchable ComfyUI Title"},
+    )
+    if response.status_code != 200:
+        raise AssertionError(f"ComfyUI title update failed: {response.text}")
+    xmp = app.read_xmp(source)
+    if not xmp or xmp.get("title") != "Searchable ComfyUI Title":
+        raise AssertionError(f"ComfyUI title was not written to XMP: {xmp}")
+    search = client.get("/api/images", params={"q": "Searchable ComfyUI"})
+    if search.status_code != 200 or search.json()["total"] != 1:
+        raise AssertionError(f"Title search did not find image: {search.text}")
+
+
+def test_metadata_patch_chatgpt_and_comfyui_prompt_rejection(images: TestImages) -> None:
+    reset_state()
+    chatgpt = app.CHATGPT_ROOT / "20260405_010203_chatgpt.png"
+    create_png(chatgpt)
+    app.write_xmp(
+        chatgpt,
+        "original prompt",
+        "2026-04-05T01:02:03+08:00",
+        "image2",
+        "Original Title",
+    )
+    comfy = copy_to_comfy(images.comfyui[0])
+    app.scan_photos()
+
+    client = TestClient(app.app)
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        chatgpt_row = conn.execute(
+            "SELECT id FROM images WHERE source = ?", (app.SOURCE_CHATGPT,)
+        ).fetchone()
+        comfy_row = conn.execute(
+            "SELECT id FROM images WHERE source = ?", (app.SOURCE_COMFYUI,)
+        ).fetchone()
+
+    response = client.patch(
+        f"/api/images/{chatgpt_row['id']}/metadata",
+        json={"title": "Edited Title", "prompt": "edited prompt"},
+    )
+    if response.status_code != 200:
+        raise AssertionError(f"ChatGPT metadata patch failed: {response.text}")
+    data = response.json()
+    if data["title"] != "Edited Title" or data["longest_prompt_detail"]["text"] != "edited prompt":
+        raise AssertionError(f"ChatGPT metadata response was not updated: {data}")
+    xmp = app.read_xmp(chatgpt)
+    if xmp != {
+        "title": "Edited Title",
+        "prompt": "edited prompt",
+        "generated_at": "2026-04-05T01:02:03+08:00",
+        "model": "image2",
+    }:
+        raise AssertionError(f"ChatGPT metadata patch did not preserve XMP fields: {xmp}")
+
+    response = client.patch(
+        f"/api/images/{comfy_row['id']}/metadata",
+        json={"prompt": "should be rejected"},
+    )
+    if response.status_code != 400:
+        raise AssertionError(f"ComfyUI prompt patch should be rejected: {response.text}")
+    xmp = app.read_xmp(comfy)
+    if xmp:
+        raise AssertionError(f"Rejected ComfyUI prompt patch modified XMP: {xmp}")
 
 
 def main() -> int:
     images = test_images()
     tests = (
+        test_png_xmp_roundtrip_and_chunk_preservation,
+        test_chatgpt_filename_date_parser,
+        test_jpeg_xmp_roundtrip_without_reencode,
         test_new_image_addition,
         test_old_image_deletion,
         test_consistency_after_reset,
+        test_chatgpt_scan_restore_and_delete,
+        test_chatgpt_upload_writes_xmp_and_overwrites,
+        test_chatgpt_upload_existing_xmp_title_update_preserves_metadata,
+        test_chatgpt_named_fixture_upload,
+        test_comfyui_upload_parses_metadata,
+        test_default_title_and_title_search,
+        test_metadata_patch_chatgpt_and_comfyui_prompt_rejection,
     )
     try:
         for test in tests:
@@ -132,7 +505,7 @@ def main() -> int:
             print(f"PASS {test.__name__}")
     finally:
         reset_state()
-        print("RESET photos/comfyui, database, and thumbnails")
+        print("RESET photos/comfyui, photos/chatgpt, database, and thumbnails")
     return 0
 
 
