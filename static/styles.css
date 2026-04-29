@@ -117,6 +117,13 @@ main {
   gap: 12px;
 }
 
+.galleryControls {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  align-items: center;
+}
+
 .sourceTabs,
 .uploadControls {
   display: flex;
@@ -124,8 +131,19 @@ main {
   align-items: center;
 }
 
-.sourceTabs {
+.sourceTabs,
+.viewToggle {
   flex: 0 0 auto;
+}
+
+.viewToggle {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.viewToggle button {
+  min-height: 30px;
 }
 
 .uploadControls {
@@ -322,6 +340,23 @@ main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 14px;
+}
+
+.grid.masonry {
+  display: block;
+  column-gap: 14px;
+  column-width: 220px;
+}
+
+.grid.masonry .card {
+  display: block;
+  break-inside: avoid;
+  margin: 0 0 14px;
+}
+
+.grid.masonry .thumb {
+  display: block;
+  height: auto;
 }
 
 .card {
@@ -808,6 +843,11 @@ main {
   .uploadBar {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .galleryControls {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 
   .uploadControls {

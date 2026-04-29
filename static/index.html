@@ -26,10 +26,16 @@
     <main>
       <section class="uploadPanel" id="uploadPanel">
         <div class="uploadBar">
-          <div class="sourceTabs" id="sourceTabs" aria-label="Source filter">
-            <button type="button" data-source="">All</button>
-            <button type="button" data-source="comfyui">ComfyUI</button>
-            <button type="button" data-source="chatgpt">ChatGPT</button>
+          <div class="galleryControls">
+            <div class="sourceTabs" id="sourceTabs" aria-label="Source filter">
+              <button type="button" data-source="">All</button>
+              <button type="button" data-source="comfyui">ComfyUI</button>
+              <button type="button" data-source="chatgpt">ChatGPT</button>
+            </div>
+            <div class="viewToggle" id="viewToggle" aria-label="Gallery view">
+              <button type="button" data-view="grid" title="Grid view" aria-label="Grid view">Grid</button>
+              <button type="button" data-view="masonry" title="Masonry view" aria-label="Masonry view">Masonry</button>
+            </div>
           </div>
           <div class="uploadControls">
             <label class="dropZone" id="dropZone">

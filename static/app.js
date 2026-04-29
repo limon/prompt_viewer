@@ -4,6 +4,7 @@ const state = {
   total: 0,
   q: new URLSearchParams(window.location.search).get("q") || "",
   source: new URLSearchParams(window.location.search).get("source") || "",
+  viewMode: localStorage.getItem("promptViewer.viewMode") || "masonry",
   uploadFiles: [],
   uploadSources: new Map(),
   uploadTitles: new Map(),
@@ -23,6 +24,7 @@ const search = document.querySelector("#search");
 const source = document.querySelector("#source");
 const rescan = document.querySelector("#rescan");
 const sourceTabs = document.querySelector("#sourceTabs");
+const viewToggle = document.querySelector("#viewToggle");
 const dropZone = document.querySelector("#dropZone");
 const fileInput = document.querySelector("#fileInput");
 const uploadButton = document.querySelector("#uploadButton");
@@ -93,6 +95,7 @@ function imageHref(id) {
 }
 
 function renderGrid(items) {
+  updateViewMode();
   if (!items.length) {
     grid.innerHTML = '<p class="empty">No images found.</p>';
     return;
@@ -107,7 +110,13 @@ function renderGrid(items) {
         : fmtDateOnlyFromSeconds(item.mtime);
       return `
         <a class="card" href="${imageHref(item.id)}">
-          <img class="thumb" src="${item.thumb_url}" alt="">
+          <img
+            class="thumb"
+            src="${item.thumb_url}"
+            alt=""
+            width="${escapeHtml(item.width || "")}"
+            height="${escapeHtml(item.height || "")}"
+          >
           <div class="meta">
             <p class="name" title="${escapeHtml(item.relative_path)}">${escapeHtml(item.title || item.file_name)}</p>
             <div class="sub">
@@ -119,6 +128,17 @@ function renderGrid(items) {
       `;
     })
     .join("");
+}
+
+function updateViewMode() {
+  const mode = state.viewMode === "masonry" ? "masonry" : "grid";
+  state.viewMode = mode;
+  grid.classList.toggle("masonry", mode === "masonry");
+  viewToggle.querySelectorAll("button").forEach((button) => {
+    const active = button.dataset.view === mode;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  });
 }
 
 function updateSourceTabs() {
@@ -354,6 +374,14 @@ sourceTabs.addEventListener("click", (event) => {
   loadImages().catch((error) => {
     grid.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   });
+});
+
+viewToggle.addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  state.viewMode = button.dataset.view === "masonry" ? "masonry" : "grid";
+  localStorage.setItem("promptViewer.viewMode", state.viewMode);
+  updateViewMode();
 });
 
 fileInput.addEventListener("change", () => {
