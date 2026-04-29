@@ -235,6 +235,21 @@ main {
   color: #a93b3b;
 }
 
+.uploadMetaLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+}
+
+.uploadSourceSelect {
+  width: auto;
+  min-height: 24px;
+  padding: 0 24px 0 8px;
+  font-size: 12px;
+}
+
 .uploadItem textarea {
   width: 100%;
   min-height: 74px;
@@ -519,7 +534,8 @@ main {
 
 .viewerPreview.originalSize {
   width: auto;
-  max-width: none;
+  max-width: 100%;
+  height: auto;
   max-height: none;
   object-fit: initial;
   cursor: zoom-out;
@@ -536,7 +552,44 @@ main {
 }
 
 .metadataHeader {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
   margin-bottom: 12px;
+}
+
+.openOriginalButton {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-height: 32px;
+  border: 1px solid #dce1e8;
+  border-radius: 6px;
+  background: transparent;
+  color: #20242c;
+  padding: 0;
+  outline: none;
+  text-decoration: none;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.openOriginalButton:hover,
+.openOriginalButton:focus {
+  background: transparent;
+  color: #20242c;
+}
+
+.metadataHeader .titleEditable,
+.metadataHeader .titleInlineEditor {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.metadataHeader .titleInlineEditor {
+  margin-bottom: 0;
 }
 
 .editableValue {

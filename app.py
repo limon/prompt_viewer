@@ -49,6 +49,7 @@ THUMB_MAX_EDGE = 720
 
 SOURCE_COMFYUI = "comfyui"
 SOURCE_CHATGPT = "chatgpt"
+SOURCES = {SOURCE_COMFYUI, SOURCE_CHATGPT}
 PARSER_COMFY_PNG = "comfy_png_summary"
 PARSER_CHATGPT_XMP = "chatgpt_xmp"
 DEFAULT_CHATGPT_MODEL = "image2"
@@ -182,8 +183,18 @@ def is_supported_chatgpt_image(path: Path) -> bool:
     return resolved.is_file() and resolved.suffix.lower() in {".png", ".jpg", ".jpeg"}
 
 
+def is_photo_image(path: Path) -> bool:
+    if path.name.startswith("."):
+        return False
+    try:
+        path.resolve().relative_to(PHOTO_ROOT.resolve())
+    except ValueError:
+        return False
+    return path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
+
+
 def is_supported_image(path: Path) -> bool:
-    return is_supported_comfy_png(path) or is_supported_chatgpt_image(path)
+    return image_source_and_parser(path) is not None
 
 
 def image_dimensions(path: Path) -> tuple[int | None, int | None]:
@@ -220,6 +231,10 @@ def parse_generated_at_from_filename(path: Path) -> str | None:
 
 def fallback_generated_at(path: Path) -> str:
     return parse_generated_at_from_filename(path) or iso_from_timestamp(path.stat().st_mtime)
+
+
+def generated_at_from_upload(path: Path, mtime: str = "") -> str:
+    return parse_generated_at_from_filename(path) or mtime or iso_from_timestamp(path.stat().st_mtime)
 
 
 def safe_upload_name(filename: str) -> str:
@@ -308,12 +323,16 @@ def parse_xmp_xml(xml_text: str) -> dict[str, str]:
         ]
     )
     model = first_text([f".//{{{NS_PV}}}Model"])
-    return {
+    source = first_text([f".//{{{NS_PV}}}Source"])
+    result = {
         "title": title,
         "prompt": prompt,
         "generated_at": generated_at,
         "model": model,
     }
+    if source:
+        result["source"] = source
+    return result
 
 
 def add_rdf_alt(parent: ET.Element, tag: str, value: str) -> None:
@@ -329,6 +348,7 @@ def build_xmp_xml(
     generated_at: str = "",
     model: str = "",
     title: str = "",
+    source: str = "",
 ) -> str:
     ET.register_namespace("x", "adobe:ns:meta/")
     ET.register_namespace("rdf", NS_RDF)
@@ -351,6 +371,8 @@ def build_xmp_xml(
         ET.SubElement(description, f"{{{NS_XMP}}}CreateDate").text = generated_at
     if model:
         ET.SubElement(description, f"{{{NS_PV}}}Model").text = model
+    if source:
+        ET.SubElement(description, f"{{{NS_PV}}}Source").text = source
     xml = ET.tostring(xmpmeta, encoding="utf-8", xml_declaration=False).decode("utf-8")
     return f'<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>\n{xml}\n<?xpacket end="w"?>'
 
@@ -501,6 +523,7 @@ def write_xmp(
     generated_at: str | None = None,
     model: str | None = None,
     title: str | None = None,
+    source: str | None = None,
 ) -> None:
     existing = read_xmp(path) or {}
     fields = {
@@ -508,6 +531,7 @@ def write_xmp(
         "generated_at": existing.get("generated_at", ""),
         "model": existing.get("model", ""),
         "title": existing.get("title", ""),
+        "source": existing.get("source", ""),
     }
     if prompt is not None:
         fields["prompt"] = prompt
@@ -517,6 +541,10 @@ def write_xmp(
         fields["model"] = model
     if title is not None:
         fields["title"] = title
+    if source is not None:
+        if source and source not in SOURCES:
+            raise ValueError(f"Unsupported source: {source}")
+        fields["source"] = source
     xml_text = build_xmp_xml(**fields)
     suffix = path.suffix.lower()
     if suffix == ".png":
@@ -530,7 +558,8 @@ def write_xmp(
 def parse_comfy_png(path: Path) -> dict[str, Any]:
     chunks = read_png_text_chunks(path)
     xmp = read_xmp(path) or {}
-    generated_at = parse_generated_at_from_filename(path)
+    filename_generated_at = parse_generated_at_from_filename(path)
+    generated_at = xmp.get("generated_at") or filename_generated_at
     prompt = load_comfy_json(chunks, "prompt")
     if prompt is None:
         raise ValueError("No ComfyUI 'prompt' metadata chunk found in PNG.")
@@ -538,12 +567,26 @@ def parse_comfy_png(path: Path) -> dict[str, Any]:
     return {
         "metadata_keys": [
             *sorted(chunks),
-            *(["filename:generated_at"] if generated_at else []),
+            *(["filename:generated_at"] if filename_generated_at else []),
+            *(["pv:Source"] if xmp.get("source") else []),
+            *(["pv:Title"] if xmp.get("title") else []),
+            *(["pv:GeneratedAt"] if xmp.get("generated_at") else []),
         ],
         "models": extract_models(prompt),
         "loras": extract_loras(prompt, workflow),
         "longest_prompt": extract_longest_prompt(prompt),
-        "raw_metadata": chunks,
+        "raw_metadata": {
+            **chunks,
+            **{
+                key: value
+                for key, value in {
+                    "source": xmp.get("source", ""),
+                    "title": xmp.get("title", ""),
+                    "generated_at": xmp.get("generated_at", ""),
+                }.items()
+                if value
+            },
+        },
         "generated_at": generated_at,
         "title": xmp.get("title") or path.name,
     }
@@ -562,6 +605,7 @@ def parse_chatgpt_image(path: Path) -> dict[str, Any]:
             "pv:GeneratedAt": generated_at,
             "pv:Model": model,
             "pv:Title": title,
+            "pv:Source": xmp.get("source", ""),
         }.items()
         if value
     ]
@@ -591,18 +635,47 @@ def parse_chatgpt_image(path: Path) -> dict[str, Any]:
             "prompt": prompt,
             "generated_at": generated_at,
             "model": model,
+            "source": xmp.get("source", ""),
         },
         "generated_at": generated_at,
         "title": title,
     }
 
 
-def image_source_and_parser(path: Path) -> tuple[str, str] | None:
-    if is_supported_comfy_png(path):
-        return SOURCE_COMFYUI, PARSER_COMFY_PNG
-    if is_supported_chatgpt_image(path):
-        return SOURCE_CHATGPT, PARSER_CHATGPT_XMP
+def source_from_path(path: Path) -> str | None:
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(COMFY_ROOT.resolve())
+        return SOURCE_COMFYUI if resolved.suffix.lower() == ".png" else None
+    except ValueError:
+        pass
+    try:
+        resolved.relative_to(CHATGPT_ROOT.resolve())
+        return SOURCE_CHATGPT if resolved.suffix.lower() in {".png", ".jpg", ".jpeg"} else None
+    except ValueError:
+        return None
+
+
+def parser_for_source(path: Path, source: str) -> str | None:
+    suffix = path.suffix.lower()
+    if source == SOURCE_COMFYUI and suffix == ".png":
+        return PARSER_COMFY_PNG
+    if source == SOURCE_CHATGPT and suffix in {".png", ".jpg", ".jpeg"}:
+        return PARSER_CHATGPT_XMP
     return None
+
+
+def image_source_and_parser(path: Path) -> tuple[str, str] | None:
+    if not is_photo_image(path):
+        return None
+    xmp = read_xmp(path) or {}
+    source = xmp.get("source", "")
+    if source not in SOURCES:
+        source = source_from_path(path) or ""
+        if source:
+            write_xmp(path, source=source)
+    parser = parser_for_source(path, source)
+    return (source, parser) if parser else None
 
 
 def parse_image_metadata(path: Path, source: str) -> dict[str, Any]:
@@ -819,15 +892,16 @@ def scan_photos() -> dict[str, int]:
         SOURCE_CHATGPT: set(),
     }
     with scan_lock:
-        for path in COMFY_ROOT.rglob("*.png"):
-            current_by_source[SOURCE_COMFYUI].add(path_relative_to_photos(path))
+        for path in PHOTO_ROOT.rglob("*"):
+            if not is_photo_image(path):
+                continue
+            source_parser = image_source_and_parser(path)
+            if source_parser is None:
+                continue
+            source, _parser = source_parser
+            current_by_source[source].add(path_relative_to_photos(path))
             if upsert_image(path) is not None:
                 count += 1
-        for pattern in ("*.png", "*.jpg", "*.jpeg"):
-            for path in CHATGPT_ROOT.rglob(pattern):
-                current_by_source[SOURCE_CHATGPT].add(path_relative_to_photos(path))
-                if upsert_image(path) is not None:
-                    count += 1
         deleted = sum(
             sync_deleted_images(paths, source)
             for source, paths in current_by_source.items()
@@ -856,7 +930,7 @@ def wait_until_stable(path: Path, checks: int = 2, delay: float = 0.5) -> bool:
 
 def schedule_parse(path: Path) -> None:
     path = path.resolve()
-    if not is_supported_image(path):
+    if not is_photo_image(path):
         return
     with scan_lock:
         if path in pending_paths:
@@ -964,8 +1038,25 @@ def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, str]]:
             "prompt": str(item.get("prompt") or ""),
             "generated_at": str(item.get("generated_at") or ""),
             "model": str(item.get("model") or DEFAULT_CHATGPT_MODEL),
+            "source": str(item.get("source") or ""),
+            "mtime": str(item.get("mtime") or ""),
         }
     return result
+
+
+def metadata_source_for_endpoint(supplied: dict[str, str], expected: str) -> str:
+    source = supplied.get("source", "") or expected
+    if source not in SOURCES:
+        raise HTTPException(status_code=400, detail=f"Unsupported source: {source}")
+    if source != expected:
+        raise HTTPException(status_code=400, detail=f"Expected source {expected}, got {source}")
+    return source
+
+
+def has_chatgpt_metadata(metadata: dict[str, str] | None) -> bool:
+    if not metadata:
+        return False
+    return any(metadata.get(key) for key in ("prompt", "generated_at", "model"))
 
 
 def upload_result(path: Path, image_id: int | None) -> dict[str, Any]:
@@ -1032,7 +1123,7 @@ async def inspect_chatgpt_uploads(files: list[UploadFile] = File(...)) -> dict[s
                 {
                     "file_name": name,
                     "supported": True,
-                    "has_xmp": bool(metadata),
+                    "has_xmp": has_chatgpt_metadata(metadata),
                     "metadata": metadata,
                     "generated_at_fallback": fallback_generated_at(tmp),
                 }
@@ -1056,11 +1147,23 @@ async def upload_comfyui(
         name = safe_upload_name(upload.filename or "")
         if Path(name).suffix.lower() != ".png":
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG file")
+        supplied = submitted.get(name, {})
+        source = metadata_source_for_endpoint(supplied, SOURCE_COMFYUI)
         target = COMFY_ROOT / name
         await save_upload_file(upload, target)
-        title = submitted.get(name, {}).get("title", "").strip()
-        if title:
-            write_xmp(target, title=title)
+        title = supplied.get("title", "").strip()
+        existing_xmp = read_xmp(target) or {}
+        generated_at = None
+        if not existing_xmp.get("generated_at"):
+            generated_at = supplied.get("generated_at") or generated_at_from_upload(
+                target, supplied.get("mtime", "")
+            )
+        write_xmp(
+            target,
+            title=title or None,
+            generated_at=generated_at,
+            source=source,
+        )
         image_id = upsert_image(target)
         items.append(upload_result(target, image_id))
     return {"items": items}
@@ -1078,18 +1181,31 @@ async def upload_chatgpt(
         suffix = Path(name).suffix.lower()
         if suffix not in {".png", ".jpg", ".jpeg"}:
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG/JPEG file")
+        supplied = submitted.get(name, {})
+        source = metadata_source_for_endpoint(supplied, SOURCE_CHATGPT)
         target = CHATGPT_ROOT / name
         await save_upload_file(upload, target)
-        existing_xmp = read_xmp(target)
-        supplied = submitted.get(name, {})
+        existing_xmp = read_xmp(target) or {}
         title = supplied.get("title", "").strip()
-        if not existing_xmp:
+        if not has_chatgpt_metadata(existing_xmp):
             prompt = supplied.get("prompt", "")
-            generated_at = supplied.get("generated_at") or fallback_generated_at(target)
+            generated_at = supplied.get("generated_at") or generated_at_from_upload(
+                target, supplied.get("mtime", "")
+            )
             model = supplied.get("model") or DEFAULT_CHATGPT_MODEL
-            write_xmp(target, prompt, generated_at, model, title or name)
-        elif title:
-            write_xmp(target, title=title)
+            write_xmp(target, prompt, generated_at, model, title or existing_xmp.get("title") or name, source)
+        else:
+            generated_at = None
+            if not existing_xmp.get("generated_at"):
+                generated_at = supplied.get("generated_at") or generated_at_from_upload(
+                    target, supplied.get("mtime", "")
+                )
+            write_xmp(
+                target,
+                title=title or None,
+                generated_at=generated_at,
+                source=source,
+            )
         image_id = upsert_image(target)
         items.append(upload_result(target, image_id))
     return {"items": items}

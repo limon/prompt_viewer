@@ -147,6 +147,14 @@ function renderDetail(item) {
 
   detail.innerHTML = `
     <div class="metadataHeader">
+      <a
+        class="openOriginalButton"
+        href="${item.media_url}"
+        target="_blank"
+        rel="noopener"
+        title="Open original image in new tab"
+        aria-label="Open original image in new tab"
+      >↗</a>
       <button
         id="titleEditable"
         class="editableValue titleEditable"

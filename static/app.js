@@ -5,6 +5,9 @@ const state = {
   q: new URLSearchParams(window.location.search).get("q") || "",
   source: new URLSearchParams(window.location.search).get("source") || "",
   uploadFiles: [],
+  uploadSources: new Map(),
+  uploadTitles: new Map(),
+  uploadPrompts: new Map(),
   inspectItems: new Map(),
   previewUrls: new Map(),
   items: [],
@@ -153,37 +156,43 @@ function previewUrl(file) {
   return url;
 }
 
-function uploadKind(file) {
+function inferredUploadSource(file) {
   const lower = file.name.toLowerCase();
   if (lower.startsWith("comfyui")) return "comfyui";
   if (lower.startsWith("chatgpt")) return "chatgpt";
   return "";
 }
 
+function uploadSource(file) {
+  return state.uploadSources.get(fileKey(file)) ?? inferredUploadSource(file);
+}
+
+function fileByKey(key) {
+  return state.uploadFiles.find((file) => fileKey(file) === key);
+}
+
 function parseGeneratedFromName(file) {
   const match = file.name.match(/(20\d{2})\D*(\d{1,2})\D*(\d{1,2})(?:\D+(\d{1,2})\D*(\d{1,2})\D*(\d{1,2}))?/);
-  if (!match) return new Date(file.lastModified).toISOString();
+  if (!match) return "";
   const [, year, month, day, hour = "00", minute = "00", second = "00"] = match;
   const padded = [month, day, hour, minute, second].map((part) => part.padStart(2, "0"));
   return new Date(`${year}-${padded[0]}-${padded[1]}T${padded[2]}:${padded[3]}:${padded[4]}`).toISOString();
 }
 
+function fileMtimeIso(file) {
+  return new Date(file.lastModified).toISOString();
+}
+
 function renderUploadList() {
-  const currentTitles = new Map(
-    Array.from(uploadList.querySelectorAll("[data-title-key]")).map((input) => [
-      input.dataset.titleKey,
-      input.value,
-    ]),
-  );
-  const currentPrompts = new Map(
-    Array.from(uploadList.querySelectorAll("[data-prompt-key]")).map((textarea) => [
-      textarea.dataset.promptKey,
-      textarea.value,
-    ]),
-  );
-  const hasUnknown = state.uploadFiles.some((file) => !uploadKind(file));
+  uploadList.querySelectorAll("[data-title-key]").forEach((input) => {
+    state.uploadTitles.set(input.dataset.titleKey, input.value);
+  });
+  uploadList.querySelectorAll("[data-prompt-key]").forEach((textarea) => {
+    state.uploadPrompts.set(textarea.dataset.promptKey, textarea.value);
+  });
+  const hasUnknown = state.uploadFiles.some((file) => !uploadSource(file));
   const waitingForInspect = state.uploadFiles.some(
-    (file) => uploadKind(file) === "chatgpt" && !state.inspectItems.has(fileKey(file)),
+    (file) => uploadSource(file) === "chatgpt" && !state.inspectItems.has(fileKey(file)),
   );
   uploadButton.disabled = state.uploadFiles.length === 0 || hasUnknown || waitingForInspect;
   if (!state.uploadFiles.length) {
@@ -192,13 +201,20 @@ function renderUploadList() {
   }
   uploadList.innerHTML = state.uploadFiles
     .map((file) => {
-      const kind = uploadKind(file);
+      const kind = uploadSource(file);
       const inspected = state.inspectItems.get(fileKey(file));
       const hasXmp = inspected?.has_xmp;
       const key = fileKey(file);
       const defaultTitle = inspected?.metadata?.title || file.name;
-      const titleValue = currentTitles.get(key) ?? defaultTitle;
-      const promptValue = currentPrompts.get(key) ?? "";
+      const titleValue = state.uploadTitles.get(key) ?? defaultTitle;
+      const promptValue = state.uploadPrompts.get(key) ?? "";
+      const sourceSelect = `
+        <select class="uploadSourceSelect" data-source-key="${escapeHtml(key)}" aria-label="Source for ${escapeHtml(file.name)}">
+          <option value=""${kind ? "" : " selected"}>Source</option>
+          <option value="comfyui"${kind === "comfyui" ? " selected" : ""}>ComfyUI</option>
+          <option value="chatgpt"${kind === "chatgpt" ? " selected" : ""}>ChatGPT</option>
+        </select>
+      `;
       const titleDisplay =
         kind
           ? `
@@ -220,7 +236,7 @@ function renderUploadList() {
             </label>
           `
           : "";
-      let status = "Filename must start with ComfyUI or ChatGPT";
+      let status = "Choose ComfyUI or ChatGPT";
       if (kind === "comfyui") {
         status = "ComfyUI metadata will be parsed after upload";
       } else if (kind === "chatgpt") {
@@ -239,7 +255,10 @@ function renderUploadList() {
               titleDisplay ||
               `<strong>${escapeHtml(file.name)}</strong>`
             }
-            <em class="uploadType ${escapeHtml(kind || "unknown")}">${escapeHtml(kind || "unknown")}</em>
+            <div class="uploadMetaLine">
+              <em class="uploadType ${escapeHtml(kind || "unknown")}">${escapeHtml(kind || "unknown")}</em>
+              ${sourceSelect}
+            </div>
             <span>${escapeHtml(status)}</span>
           </div>
           <div class="uploadMetadata">
@@ -253,6 +272,9 @@ function renderUploadList() {
 
 function removeUploadFile(key) {
   state.uploadFiles = state.uploadFiles.filter((file) => fileKey(file) !== key);
+  state.uploadSources.delete(key);
+  state.uploadTitles.delete(key);
+  state.uploadPrompts.delete(key);
   state.inspectItems.delete(key);
   const url = state.previewUrls.get(key);
   if (url) URL.revokeObjectURL(url);
@@ -283,10 +305,16 @@ async function addUploadFiles(files) {
     renderUploadList();
     return;
   }
+  additions.forEach((file) => {
+    const key = fileKey(file);
+    if (!state.uploadSources.has(key)) {
+      state.uploadSources.set(key, inferredUploadSource(file));
+    }
+  });
   state.uploadFiles = [...state.uploadFiles, ...additions];
   prunePreviewUrls();
   renderUploadList();
-  const chatgptFiles = additions.filter((file) => uploadKind(file) === "chatgpt");
+  const chatgptFiles = additions.filter((file) => uploadSource(file) === "chatgpt");
   if (chatgptFiles.length) {
     await inspectChatgptFiles(chatgptFiles);
   }
@@ -359,15 +387,30 @@ uploadList.addEventListener("click", (event) => {
   removeUploadFile(button.dataset.removeKey);
 });
 
+uploadList.addEventListener("change", (event) => {
+  const select = event.target.closest("[data-source-key]");
+  if (!select) return;
+  const key = select.dataset.sourceKey;
+  const selectedSource = select.value;
+  state.uploadSources.set(key, selectedSource);
+  const file = fileByKey(key);
+  renderUploadList();
+  if (file && selectedSource === "chatgpt" && !state.inspectItems.has(key)) {
+    inspectChatgptFiles([file]).catch((error) => {
+      uploadList.innerHTML = `<p class="errorBox">${escapeHtml(error.message)}</p>`;
+    });
+  }
+});
+
 uploadButton.addEventListener("click", async () => {
   if (!state.uploadFiles.length) return;
   uploadButton.disabled = true;
   try {
-    const comfyFiles = state.uploadFiles.filter((file) => uploadKind(file) === "comfyui");
-    const chatgptFiles = state.uploadFiles.filter((file) => uploadKind(file) === "chatgpt");
-    const unknownFiles = state.uploadFiles.filter((file) => !uploadKind(file));
+    const comfyFiles = state.uploadFiles.filter((file) => uploadSource(file) === "comfyui");
+    const chatgptFiles = state.uploadFiles.filter((file) => uploadSource(file) === "chatgpt");
+    const unknownFiles = state.uploadFiles.filter((file) => !uploadSource(file));
     if (unknownFiles.length) {
-      throw new Error(`Unsupported filename: ${unknownFiles[0].name}`);
+      throw new Error(`Choose a source for ${unknownFiles[0].name}`);
     }
 
     if (comfyFiles.length) {
@@ -381,7 +424,10 @@ uploadButton.addEventListener("click", async () => {
       );
       const metadata = comfyFiles.map((file) => ({
         filename: file.name,
+        source: "comfyui",
         title: (titles.get(fileKey(file)) || file.name).trim() || file.name,
+        generated_at: parseGeneratedFromName(file),
+        mtime: fileMtimeIso(file),
       }));
       comfyData.append("metadata", JSON.stringify(metadata));
       const response = await fetch("/api/uploads/comfyui", {
@@ -415,9 +461,11 @@ uploadButton.addEventListener("click", async () => {
         }
         return {
           filename: file.name,
+          source: "chatgpt",
           title,
           prompt: inspected?.has_xmp ? "" : prompt,
           generated_at: parseGeneratedFromName(file),
+          mtime: fileMtimeIso(file),
           model: "image2",
         };
       });
@@ -429,6 +477,9 @@ uploadButton.addEventListener("click", async () => {
       if (!response.ok) throw new Error(`ChatGPT upload failed: ${response.status}`);
     }
     state.uploadFiles = [];
+    state.uploadSources = new Map();
+    state.uploadTitles = new Map();
+    state.uploadPrompts = new Map();
     state.inspectItems = new Map();
     clearPreviewUrls();
     fileInput.value = "";
