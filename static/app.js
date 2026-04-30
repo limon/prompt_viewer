@@ -7,6 +7,7 @@ const state = {
   viewMode: localStorage.getItem("promptViewer.viewMode") || "masonry",
   uploadFiles: [],
   uploadSources: new Map(),
+  uploadSourceOrigins: new Map(),
   uploadTitles: new Map(),
   uploadPrompts: new Map(),
   inspectItems: new Map(),
@@ -183,6 +184,14 @@ function inferredUploadSource(file) {
   return "";
 }
 
+function isSupportedUploadSource(value) {
+  return value === "comfyui" || value === "chatgpt";
+}
+
+function isInspectableUpload(file) {
+  return [".png", ".jpg", ".jpeg"].some((suffix) => file.name.toLowerCase().endsWith(suffix));
+}
+
 function uploadSource(file) {
   return state.uploadSources.get(fileKey(file)) ?? inferredUploadSource(file);
 }
@@ -203,17 +212,20 @@ function fileMtimeIso(file) {
   return new Date(file.lastModified).toISOString();
 }
 
-function renderUploadList() {
+function snapshotUploadInputs() {
   uploadList.querySelectorAll("[data-title-key]").forEach((input) => {
     state.uploadTitles.set(input.dataset.titleKey, input.value);
   });
   uploadList.querySelectorAll("[data-prompt-key]").forEach((textarea) => {
     state.uploadPrompts.set(textarea.dataset.promptKey, textarea.value);
   });
+}
+
+function renderUploadList(options = {}) {
+  const { preserveInputs = true } = options;
+  if (preserveInputs) snapshotUploadInputs();
   const hasUnknown = state.uploadFiles.some((file) => !uploadSource(file));
-  const waitingForInspect = state.uploadFiles.some(
-    (file) => uploadSource(file) === "chatgpt" && !state.inspectItems.has(fileKey(file)),
-  );
+  const waitingForInspect = state.uploadFiles.some((file) => isInspectableUpload(file) && !state.inspectItems.has(fileKey(file)));
   uploadButton.disabled = state.uploadFiles.length === 0 || hasUnknown || waitingForInspect;
   if (!state.uploadFiles.length) {
     uploadList.innerHTML = "";
@@ -227,7 +239,7 @@ function renderUploadList() {
       const key = fileKey(file);
       const defaultTitle = inspected?.metadata?.title || file.name;
       const titleValue = state.uploadTitles.get(key) ?? defaultTitle;
-      const promptValue = state.uploadPrompts.get(key) ?? "";
+      const promptValue = state.uploadPrompts.get(key) ?? (kind === "chatgpt" ? (inspected?.metadata?.prompt || "") : "");
       const sourceSelect = `
         <select class="uploadSourceSelect" data-source-key="${escapeHtml(key)}" aria-label="Source for ${escapeHtml(file.name)}">
           <option value=""${kind ? "" : " selected"}>Source</option>
@@ -249,7 +261,7 @@ function renderUploadList() {
           `
           : "";
       const promptInput =
-        kind === "chatgpt" && inspected && !hasXmp
+        kind === "chatgpt" && inspected
           ? `
             <label class="uploadField">
               <textarea data-prompt-key="${escapeHtml(key)}" placeholder="Prompt for ${escapeHtml(file.name)}">${escapeHtml(promptValue)}</textarea>
@@ -265,6 +277,8 @@ function renderUploadList() {
             ? "Will use image metadata"
             : "Prompt optional; date/model will be filled automatically"
           : "Checking metadata...";
+      } else if (!inspected && isInspectableUpload(file)) {
+        status = "Reading image metadata...";
       }
       return `
         <div class="uploadItem">
@@ -293,6 +307,7 @@ function renderUploadList() {
 function removeUploadFile(key) {
   state.uploadFiles = state.uploadFiles.filter((file) => fileKey(file) !== key);
   state.uploadSources.delete(key);
+  state.uploadSourceOrigins.delete(key);
   state.uploadTitles.delete(key);
   state.uploadPrompts.delete(key);
   state.inspectItems.delete(key);
@@ -302,10 +317,10 @@ function removeUploadFile(key) {
   renderUploadList();
 }
 
-async function inspectChatgptFiles(files) {
+async function inspectUploadFiles(files) {
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file));
-  const response = await fetch("/api/uploads/chatgpt/inspect", {
+  const response = await fetch("/api/uploads/inspect", {
     method: "POST",
     body: formData,
   });
@@ -313,9 +328,32 @@ async function inspectChatgptFiles(files) {
   const data = await response.json();
   data.items.forEach((item, index) => {
     const file = files[index];
-    if (file) state.inspectItems.set(fileKey(file), item);
+    if (!file) return;
+    const key = fileKey(file);
+    state.inspectItems.set(key, item);
+    const embeddedTitle = item?.metadata?.title || "";
+    const currentTitle = state.uploadTitles.get(key);
+    if (embeddedTitle && (currentTitle === undefined || currentTitle === file.name)) {
+      state.uploadTitles.set(key, embeddedTitle);
+    }
+    const embeddedPrompt = item?.metadata?.prompt || "";
+    const currentPrompt = state.uploadPrompts.get(key);
+    if (embeddedPrompt && (currentPrompt === undefined || currentPrompt === "")) {
+      state.uploadPrompts.set(key, embeddedPrompt);
+    }
+    const embeddedSource = item?.metadata?.source;
+    const currentSource = state.uploadSources.get(key) || "";
+    const sourceOrigin = state.uploadSourceOrigins.get(key) || "inferred";
+    if (
+      isSupportedUploadSource(embeddedSource) &&
+      sourceOrigin !== "manual" &&
+      (sourceOrigin === "inferred" || sourceOrigin === "inspected" || !currentSource)
+    ) {
+      state.uploadSources.set(key, embeddedSource);
+      state.uploadSourceOrigins.set(key, "inspected");
+    }
   });
-  renderUploadList();
+  renderUploadList({ preserveInputs: false });
 }
 
 async function addUploadFiles(files) {
@@ -329,14 +367,15 @@ async function addUploadFiles(files) {
     const key = fileKey(file);
     if (!state.uploadSources.has(key)) {
       state.uploadSources.set(key, inferredUploadSource(file));
+      state.uploadSourceOrigins.set(key, "inferred");
     }
   });
   state.uploadFiles = [...state.uploadFiles, ...additions];
   prunePreviewUrls();
   renderUploadList();
-  const chatgptFiles = additions.filter((file) => uploadSource(file) === "chatgpt");
-  if (chatgptFiles.length) {
-    await inspectChatgptFiles(chatgptFiles);
+  const inspectableFiles = additions.filter(isInspectableUpload);
+  if (inspectableFiles.length) {
+    await inspectUploadFiles(inspectableFiles);
   }
 }
 
@@ -421,10 +460,11 @@ uploadList.addEventListener("change", (event) => {
   const key = select.dataset.sourceKey;
   const selectedSource = select.value;
   state.uploadSources.set(key, selectedSource);
+  state.uploadSourceOrigins.set(key, "manual");
   const file = fileByKey(key);
   renderUploadList();
-  if (file && selectedSource === "chatgpt" && !state.inspectItems.has(key)) {
-    inspectChatgptFiles([file]).catch((error) => {
+  if (file && isInspectableUpload(file) && !state.inspectItems.has(key)) {
+    inspectUploadFiles([file]).catch((error) => {
       uploadList.innerHTML = `<p class="errorBox">${escapeHtml(error.message)}</p>`;
     });
   }
@@ -491,7 +531,7 @@ uploadButton.addEventListener("click", async () => {
           filename: file.name,
           source: "chatgpt",
           title,
-          prompt: inspected?.has_xmp ? "" : prompt,
+          prompt,
           generated_at: parseGeneratedFromName(file),
           mtime: fileMtimeIso(file),
           model: "image2",
@@ -506,6 +546,7 @@ uploadButton.addEventListener("click", async () => {
     }
     state.uploadFiles = [];
     state.uploadSources = new Map();
+    state.uploadSourceOrigins = new Map();
     state.uploadTitles = new Map();
     state.uploadPrompts = new Map();
     state.inspectItems = new Map();

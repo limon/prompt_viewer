@@ -1019,7 +1019,7 @@ async def save_upload_file(upload: UploadFile, target: Path) -> None:
             pass
 
 
-def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, str]]:
+def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, Any]]:
     if not metadata:
         return {}
     try:
@@ -1028,7 +1028,7 @@ def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, str]]:
         raise HTTPException(status_code=400, detail=f"Invalid metadata JSON: {exc}") from exc
     if not isinstance(raw, list):
         raise HTTPException(status_code=400, detail="metadata must be a JSON list")
-    result: dict[str, dict[str, str]] = {}
+    result: dict[str, dict[str, Any]] = {}
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -1036,6 +1036,7 @@ def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, str]]:
         result[filename] = {
             "title": str(item.get("title") or ""),
             "prompt": str(item.get("prompt") or ""),
+            "has_prompt": "prompt" in item,
             "generated_at": str(item.get("generated_at") or ""),
             "model": str(item.get("model") or DEFAULT_CHATGPT_MODEL),
             "source": str(item.get("source") or ""),
@@ -1057,6 +1058,43 @@ def has_chatgpt_metadata(metadata: dict[str, str] | None) -> bool:
     if not metadata:
         return False
     return any(metadata.get(key) for key in ("prompt", "generated_at", "model"))
+
+
+async def inspect_uploaded_images(files: list[UploadFile]) -> dict[str, Any]:
+    items = []
+    for upload in files:
+        name = safe_upload_name(upload.filename or "")
+        suffix = Path(name).suffix.lower()
+        if suffix not in {".png", ".jpg", ".jpeg"}:
+            items.append(
+                {
+                    "file_name": name,
+                    "supported": False,
+                    "has_xmp": False,
+                    "metadata": {},
+                    "error": "Image metadata inspect supports PNG and JPEG files.",
+                }
+            )
+            continue
+        tmp = CHATGPT_ROOT / f".inspect-{time.time_ns()}-{name}"
+        await save_upload_file(upload, tmp)
+        try:
+            metadata = read_xmp(tmp) or {}
+            items.append(
+                {
+                    "file_name": name,
+                    "supported": True,
+                    "has_xmp": has_chatgpt_metadata(metadata),
+                    "metadata": metadata,
+                    "generated_at_fallback": fallback_generated_at(tmp),
+                }
+            )
+        finally:
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
+    return {"items": items}
 
 
 def upload_result(path: Path, image_id: int | None) -> dict[str, Any]:
@@ -1098,42 +1136,14 @@ def image_page(image_id: int) -> FileResponse:
     return FileResponse(STATIC_ROOT / "image.html")
 
 
+@app.post("/api/uploads/inspect")
+async def inspect_uploads(files: list[UploadFile] = File(...)) -> dict[str, Any]:
+    return await inspect_uploaded_images(files)
+
+
 @app.post("/api/uploads/chatgpt/inspect")
 async def inspect_chatgpt_uploads(files: list[UploadFile] = File(...)) -> dict[str, Any]:
-    items = []
-    for upload in files:
-        name = safe_upload_name(upload.filename or "")
-        suffix = Path(name).suffix.lower()
-        if suffix not in {".png", ".jpg", ".jpeg"}:
-            items.append(
-                {
-                    "file_name": name,
-                    "supported": False,
-                    "has_xmp": False,
-                    "metadata": {},
-                    "error": "ChatGPT uploads support PNG and JPEG files.",
-                }
-            )
-            continue
-        tmp = CHATGPT_ROOT / f".inspect-{time.time_ns()}-{name}"
-        await save_upload_file(upload, tmp)
-        try:
-            metadata = read_xmp(tmp) or {}
-            items.append(
-                {
-                    "file_name": name,
-                    "supported": True,
-                    "has_xmp": has_chatgpt_metadata(metadata),
-                    "metadata": metadata,
-                    "generated_at_fallback": fallback_generated_at(tmp),
-                }
-            )
-        finally:
-            try:
-                tmp.unlink()
-            except FileNotFoundError:
-                pass
-    return {"items": items}
+    return await inspect_uploaded_images(files)
 
 
 @app.post("/api/uploads/comfyui")
@@ -1188,13 +1198,14 @@ async def upload_chatgpt(
         existing_xmp = read_xmp(target) or {}
         title = supplied.get("title", "").strip()
         if not has_chatgpt_metadata(existing_xmp):
-            prompt = supplied.get("prompt", "")
+            prompt = supplied.get("prompt", "") if supplied.get("has_prompt") else ""
             generated_at = supplied.get("generated_at") or generated_at_from_upload(
                 target, supplied.get("mtime", "")
             )
             model = supplied.get("model") or DEFAULT_CHATGPT_MODEL
             write_xmp(target, prompt, generated_at, model, title or existing_xmp.get("title") or name, source)
         else:
+            prompt = supplied.get("prompt", "") if supplied.get("has_prompt") else None
             generated_at = None
             if not existing_xmp.get("generated_at"):
                 generated_at = supplied.get("generated_at") or generated_at_from_upload(
@@ -1202,6 +1213,7 @@ async def upload_chatgpt(
                 )
             write_xmp(
                 target,
+                prompt=prompt,
                 title=title or None,
                 generated_at=generated_at,
                 source=source,

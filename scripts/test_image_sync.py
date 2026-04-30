@@ -336,7 +336,7 @@ def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
             raise AssertionError("ChatGPT same-name upload did not upsert correctly")
 
 
-def test_chatgpt_upload_existing_xmp_title_update_preserves_metadata(_images: TestImages) -> None:
+def test_chatgpt_upload_existing_xmp_title_and_prompt_update(_images: TestImages) -> None:
     reset_state()
     with tempfile.TemporaryDirectory() as tmpdir:
         source = Path(tmpdir) / "20260406_070809_existing.png"
@@ -354,7 +354,7 @@ def test_chatgpt_upload_existing_xmp_title_update_preserves_metadata(_images: Te
                 {
                     "filename": source.name,
                     "title": "Upload Override Title",
-                    "prompt": "ignored prompt",
+                    "prompt": "edited upload prompt",
                     "generated_at": "2020-01-01T00:00:00+08:00",
                     "model": "ignored-model",
                 }
@@ -371,12 +371,54 @@ def test_chatgpt_upload_existing_xmp_title_update_preserves_metadata(_images: Te
         xmp = app.read_xmp(target)
         if xmp != {
             "title": "Upload Override Title",
+            "prompt": "edited upload prompt",
+            "generated_at": "2026-04-06T07:08:09+08:00",
+            "model": "image2",
+            "source": "chatgpt",
+        }:
+            raise AssertionError(f"Existing-XMP upload did not apply prompt/title edits: {xmp}")
+
+
+def test_chatgpt_upload_existing_xmp_title_only_preserves_prompt(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260406_070809_existing_title_only.png"
+        create_png(source)
+        app.write_xmp(
+            source,
+            "existing prompt",
+            "2026-04-06T07:08:09+08:00",
+            "image2",
+            "Existing Title",
+        )
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Upload Override Title",
+                    "generated_at": "2020-01-01T00:00:00+08:00",
+                    "model": "ignored-model",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/chatgpt",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"ChatGPT existing-XMP title-only upload failed: {response.text}")
+        target = app.CHATGPT_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Upload Override Title",
             "prompt": "existing prompt",
             "generated_at": "2026-04-06T07:08:09+08:00",
             "model": "image2",
             "source": "chatgpt",
         }:
-            raise AssertionError(f"Existing-XMP upload did not preserve metadata: {xmp}")
+            raise AssertionError(f"Existing-XMP title-only upload did not preserve prompt: {xmp}")
 
 
 def test_chatgpt_upload_allows_empty_prompt(_images: TestImages) -> None:
@@ -488,6 +530,39 @@ def test_chatgpt_upload_source_only_xmp_still_accepts_prompt(_images: TestImages
         xmp = app.read_xmp(app.CHATGPT_ROOT / source.name)
         if not xmp or xmp.get("prompt") != "prompt after source-only":
             raise AssertionError(f"Source-only XMP upload did not write prompt: {xmp}")
+
+
+def test_upload_inspect_reads_xmp_defaults(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "inspect_defaults.png"
+        create_png(source)
+        app.write_xmp(
+            source,
+            "inspect prompt",
+            "2026-04-20T10:11:12+08:00",
+            "image2",
+            "Inspect Title",
+            "chatgpt",
+        )
+        client = TestClient(app.app)
+        response = client.post(
+            "/api/uploads/inspect",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"Upload inspect failed: {response.text}")
+        item = response.json()["items"][0]
+        if not item["supported"] or not item["has_xmp"]:
+            raise AssertionError(f"Upload inspect did not detect embedded XMP: {item}")
+        if item["metadata"] != {
+            "title": "Inspect Title",
+            "prompt": "inspect prompt",
+            "generated_at": "2026-04-20T10:11:12+08:00",
+            "model": "image2",
+            "source": "chatgpt",
+        }:
+            raise AssertionError(f"Upload inspect returned wrong metadata: {item}")
 
 
 def test_upload_rejects_invalid_source_before_save(_images: TestImages) -> None:
@@ -722,10 +797,12 @@ def main() -> int:
         test_consistency_after_reset,
         test_chatgpt_scan_restore_and_delete,
         test_chatgpt_upload_writes_xmp_and_overwrites,
-        test_chatgpt_upload_existing_xmp_title_update_preserves_metadata,
+        test_chatgpt_upload_existing_xmp_title_and_prompt_update,
+        test_chatgpt_upload_existing_xmp_title_only_preserves_prompt,
         test_chatgpt_upload_allows_empty_prompt,
         test_chatgpt_upload_uses_mtime_when_filename_has_no_date,
         test_chatgpt_upload_source_only_xmp_still_accepts_prompt,
+        test_upload_inspect_reads_xmp_defaults,
         test_upload_rejects_invalid_source_before_save,
         test_chatgpt_named_fixture_upload,
         test_scan_writes_missing_source_and_uses_xmp_source,
