@@ -23,6 +23,7 @@ const sizeMode = document.querySelector("#sizeMode");
 const previewFrame = document.querySelector("#previewFrame");
 const previewImage = document.querySelector("#previewImage");
 const detail = document.querySelector("#detail");
+const PROMPT_EDITABLE_SOURCES = new Set(["chatgpt", "grok"]);
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -185,7 +186,7 @@ function renderDetail(item) {
     </dl>
     <h2 class="sectionTitle">Prompt</h2>
     ${
-      item.source === "chatgpt"
+      PROMPT_EDITABLE_SOURCES.has(item.source)
         ? `
           <button
             id="promptEditable"

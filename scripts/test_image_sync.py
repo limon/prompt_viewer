@@ -49,7 +49,7 @@ def reset_state() -> None:
             pass
 
     app.init_dirs()
-    for root in (app.COMFY_ROOT, app.CHATGPT_ROOT):
+    for root in (app.COMFY_ROOT, app.CHATGPT_ROOT, app.GROK_ROOT):
         for path in root.rglob("*"):
             if path.is_file():
                 path.unlink()
@@ -62,6 +62,12 @@ def reset_state() -> None:
 
 def copy_to_comfy(source: Path) -> Path:
     target = app.COMFY_ROOT / source.name
+    shutil.copy2(source, target)
+    return target
+
+
+def copy_to_grok(source: Path) -> Path:
+    target = app.GROK_ROOT / source.name
     shutil.copy2(source, target)
     return target
 
@@ -82,7 +88,7 @@ def current_comfy_paths() -> set[str]:
 
 
 def current_all_paths() -> set[str]:
-    roots = (app.COMFY_ROOT, app.CHATGPT_ROOT)
+    roots = (app.COMFY_ROOT, app.CHATGPT_ROOT, app.GROK_ROOT)
     return {
         path.relative_to(app.PHOTO_ROOT).as_posix()
         for root in roots
@@ -294,6 +300,32 @@ def test_chatgpt_scan_restore_and_delete(_images: TestImages) -> None:
         raise AssertionError(f"Unexpected ChatGPT delete scan result: {scan}")
 
 
+def test_grok_scan_restore_and_delete(_images: TestImages) -> None:
+    reset_state()
+    target = app.GROK_ROOT / "20260403_010203_grok.png"
+    create_png(target)
+    app.write_xmp(target, "grok prompt", "2026-04-03T01:02:03+08:00", None, "Grok Title", "grok")
+    scan = app.scan_photos()
+    if scan != {"scanned": 1, "deleted": 0}:
+        raise AssertionError(f"Unexpected Grok scan result: {scan}")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM images").fetchone()
+        model = conn.execute("SELECT model FROM models").fetchone()[0]
+    if row["source"] != "grok" or row["parser"] != "grok_xmp":
+        raise AssertionError(f"Unexpected Grok row: {dict(row)}")
+    if row["title"] != "Grok Title":
+        raise AssertionError("Grok title was not restored from XMP")
+    if row["longest_prompt_text"] != "grok prompt":
+        raise AssertionError("Grok prompt was not restored from XMP")
+    if row["generated_at"] != "2026-04-03T01:02:03+08:00" or model != "grok_imagine":
+        raise AssertionError("Grok generated_at/model were not restored from XMP")
+    target.unlink()
+    scan = app.scan_photos()
+    if scan != {"scanned": 0, "deleted": 1}:
+        raise AssertionError(f"Unexpected Grok delete scan result: {scan}")
+
+
 def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
     reset_state()
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -334,6 +366,91 @@ def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
             row = conn.execute("SELECT title, longest_prompt_text FROM images").fetchone()
         if count != 1 or row[0] != "Uploaded Title" or row[1] != "uploaded prompt":
             raise AssertionError("ChatGPT same-name upload did not upsert correctly")
+
+
+def test_grok_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260404_050607_grok_upload.png"
+        create_png(source)
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Uploaded Grok Title",
+                    "prompt": "uploaded grok prompt",
+                    "generated_at": "2026-04-04T05:06:07+08:00",
+                }
+            ]
+        )
+        for _ in range(2):
+            response = client.post(
+                "/api/uploads/grok",
+                files=[("files", (source.name, source.read_bytes(), "image/png"))],
+                data={"metadata": metadata},
+            )
+            if response.status_code != 200:
+                raise AssertionError(f"Grok upload failed: {response.text}")
+        target = app.GROK_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Uploaded Grok Title",
+            "prompt": "uploaded grok prompt",
+            "generated_at": "2026-04-04T05:06:07+08:00",
+            "model": "grok_imagine",
+            "source": "grok",
+        }:
+            raise AssertionError(f"Unexpected uploaded Grok XMP: {xmp}")
+        with sqlite3.connect(app.DB_PATH) as conn:
+            count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+            row = conn.execute("SELECT source, title, longest_prompt_text FROM images").fetchone()
+        if count != 1 or row[0] != "grok" or row[1] != "Uploaded Grok Title" or row[2] != "uploaded grok prompt":
+            raise AssertionError("Grok same-name upload did not upsert correctly")
+
+
+def test_grok_upload_accepts_jpeg_content_with_png_extension(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "grok-image-1.png"
+        create_jpeg(source)
+        client = TestClient(app.app)
+        inspect = client.post(
+            "/api/uploads/grok/inspect",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+        )
+        if inspect.status_code != 200:
+            raise AssertionError(f"Grok inspect failed for JPEG-content .png: {inspect.text}")
+        if not inspect.json()["items"][0]["supported"]:
+            raise AssertionError(f"Grok inspect unexpectedly rejected JPEG-content .png: {inspect.text}")
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "JPEG Content Grok Title",
+                    "prompt": "jpeg content grok prompt",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/grok",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"Grok upload failed for JPEG-content .png: {response.text}")
+        target = app.GROK_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if not xmp:
+            raise AssertionError("JPEG-content .png upload did not write XMP")
+        if xmp.get("title") != "JPEG Content Grok Title" or xmp.get("prompt") != "jpeg content grok prompt":
+            raise AssertionError(f"Unexpected title/prompt for JPEG-content .png upload: {xmp}")
+        if xmp.get("model") != "grok_imagine" or xmp.get("source") != "grok":
+            raise AssertionError(f"Unexpected XMP for JPEG-content .png upload: {xmp}")
+        if not xmp.get("generated_at"):
+            raise AssertionError(f"JPEG-content .png upload did not set generated_at: {xmp}")
+        if app.media_type_for_path(target) != "image/jpeg":
+            raise AssertionError("JPEG-content .png should be served as image/jpeg")
 
 
 def test_chatgpt_upload_existing_xmp_title_and_prompt_update(_images: TestImages) -> None:
@@ -377,6 +494,50 @@ def test_chatgpt_upload_existing_xmp_title_and_prompt_update(_images: TestImages
             "source": "chatgpt",
         }:
             raise AssertionError(f"Existing-XMP upload did not apply prompt/title edits: {xmp}")
+
+
+def test_grok_upload_existing_xmp_title_and_prompt_update(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "20260406_070809_existing_grok.png"
+        create_png(source)
+        app.write_xmp(
+            source,
+            "existing grok prompt",
+            "2026-04-06T07:08:09+08:00",
+            "grok_imagine",
+            "Existing Grok Title",
+            "grok",
+        )
+        client = TestClient(app.app)
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "title": "Upload Override Grok Title",
+                    "prompt": "edited grok prompt",
+                    "generated_at": "2020-01-01T00:00:00+08:00",
+                    "model": "ignored-model",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/grok",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"Grok existing-XMP upload failed: {response.text}")
+        target = app.GROK_ROOT / source.name
+        xmp = app.read_xmp(target)
+        if xmp != {
+            "title": "Upload Override Grok Title",
+            "prompt": "edited grok prompt",
+            "generated_at": "2026-04-06T07:08:09+08:00",
+            "model": "grok_imagine",
+            "source": "grok",
+        }:
+            raise AssertionError(f"Grok existing-XMP upload did not apply prompt/title edits: {xmp}")
 
 
 def test_chatgpt_upload_existing_xmp_title_only_preserves_prompt(_images: TestImages) -> None:
@@ -530,6 +691,42 @@ def test_chatgpt_upload_source_only_xmp_still_accepts_prompt(_images: TestImages
         xmp = app.read_xmp(app.CHATGPT_ROOT / source.name)
         if not xmp or xmp.get("prompt") != "prompt after source-only":
             raise AssertionError(f"Source-only XMP upload did not write prompt: {xmp}")
+
+
+def test_grok_upload_source_only_xmp_still_accepts_prompt(_images: TestImages) -> None:
+    reset_state()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        source = Path(tmpdir) / "grok_source_only_xmp.png"
+        create_png(source)
+        app.write_xmp(source, source="grok")
+        client = TestClient(app.app)
+        inspect = client.post(
+            "/api/uploads/grok/inspect",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+        )
+        if inspect.status_code != 200 or inspect.json()["items"][0]["has_xmp"]:
+            raise AssertionError(f"Grok source-only XMP should not hide prompt input: {inspect.text}")
+        metadata = json.dumps(
+            [
+                {
+                    "filename": source.name,
+                    "source": "grok",
+                    "title": "Grok Source Only",
+                    "prompt": "grok prompt after source-only",
+                    "mtime": "2026-04-12T13:14:15+08:00",
+                }
+            ]
+        )
+        response = client.post(
+            "/api/uploads/grok",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"Grok source-only XMP upload failed: {response.text}")
+        xmp = app.read_xmp(app.GROK_ROOT / source.name)
+        if not xmp or xmp.get("prompt") != "grok prompt after source-only":
+            raise AssertionError(f"Grok source-only XMP upload did not write prompt: {xmp}")
 
 
 def test_upload_inspect_reads_xmp_defaults(_images: TestImages) -> None:
@@ -732,7 +929,7 @@ def test_default_title_and_title_search(images: TestImages) -> None:
         raise AssertionError(f"Title search did not find image: {search.text}")
 
 
-def test_metadata_patch_chatgpt_and_comfyui_prompt_rejection(images: TestImages) -> None:
+def test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection(images: TestImages) -> None:
     reset_state()
     chatgpt = app.CHATGPT_ROOT / "20260405_010203_chatgpt.png"
     create_png(chatgpt)
@@ -743,6 +940,16 @@ def test_metadata_patch_chatgpt_and_comfyui_prompt_rejection(images: TestImages)
         "image2",
         "Original Title",
     )
+    grok = app.GROK_ROOT / "20260405_020304_grok.png"
+    create_png(grok)
+    app.write_xmp(
+        grok,
+        "original grok prompt",
+        "2026-04-05T02:03:04+08:00",
+        "grok_imagine",
+        "Original Grok Title",
+        "grok",
+    )
     comfy = copy_to_comfy(images.comfyui[0])
     app.scan_photos()
 
@@ -751,6 +958,9 @@ def test_metadata_patch_chatgpt_and_comfyui_prompt_rejection(images: TestImages)
         conn.row_factory = sqlite3.Row
         chatgpt_row = conn.execute(
             "SELECT id FROM images WHERE source = ?", (app.SOURCE_CHATGPT,)
+        ).fetchone()
+        grok_row = conn.execute(
+            "SELECT id FROM images WHERE source = ?", (app.SOURCE_GROK,)
         ).fetchone()
         comfy_row = conn.execute(
             "SELECT id FROM images WHERE source = ?", (app.SOURCE_COMFYUI,)
@@ -776,6 +986,25 @@ def test_metadata_patch_chatgpt_and_comfyui_prompt_rejection(images: TestImages)
         raise AssertionError(f"ChatGPT metadata patch did not preserve XMP fields: {xmp}")
 
     response = client.patch(
+        f"/api/images/{grok_row['id']}/metadata",
+        json={"title": "Edited Grok Title", "prompt": "edited grok prompt"},
+    )
+    if response.status_code != 200:
+        raise AssertionError(f"Grok metadata patch failed: {response.text}")
+    data = response.json()
+    if data["title"] != "Edited Grok Title" or data["longest_prompt_detail"]["text"] != "edited grok prompt":
+        raise AssertionError(f"Grok metadata response was not updated: {data}")
+    xmp = app.read_xmp(grok)
+    if xmp != {
+        "title": "Edited Grok Title",
+        "prompt": "edited grok prompt",
+        "generated_at": "2026-04-05T02:03:04+08:00",
+        "model": "grok_imagine",
+        "source": "grok",
+    }:
+        raise AssertionError(f"Grok metadata patch did not preserve XMP fields: {xmp}")
+
+    response = client.patch(
         f"/api/images/{comfy_row['id']}/metadata",
         json={"prompt": "should be rejected"},
     )
@@ -796,12 +1025,17 @@ def main() -> int:
         test_old_image_deletion,
         test_consistency_after_reset,
         test_chatgpt_scan_restore_and_delete,
+        test_grok_scan_restore_and_delete,
         test_chatgpt_upload_writes_xmp_and_overwrites,
+        test_grok_upload_writes_xmp_and_overwrites,
+        test_grok_upload_accepts_jpeg_content_with_png_extension,
         test_chatgpt_upload_existing_xmp_title_and_prompt_update,
+        test_grok_upload_existing_xmp_title_and_prompt_update,
         test_chatgpt_upload_existing_xmp_title_only_preserves_prompt,
         test_chatgpt_upload_allows_empty_prompt,
         test_chatgpt_upload_uses_mtime_when_filename_has_no_date,
         test_chatgpt_upload_source_only_xmp_still_accepts_prompt,
+        test_grok_upload_source_only_xmp_still_accepts_prompt,
         test_upload_inspect_reads_xmp_defaults,
         test_upload_rejects_invalid_source_before_save,
         test_chatgpt_named_fixture_upload,
@@ -809,7 +1043,7 @@ def main() -> int:
         test_comfyui_upload_parses_metadata,
         test_comfyui_filename_date_parser,
         test_default_title_and_title_search,
-        test_metadata_patch_chatgpt_and_comfyui_prompt_rejection,
+        test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection,
     )
     try:
         for test in tests:
@@ -817,7 +1051,7 @@ def main() -> int:
             print(f"PASS {test.__name__}")
     finally:
         reset_state()
-        print("RESET photos/comfyui, photos/chatgpt, database, and thumbnails")
+        print("RESET photos/comfyui, photos/chatgpt, photos/grok, database, and thumbnails")
     return 0
 
 

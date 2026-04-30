@@ -17,6 +17,7 @@
           <option value="">All sources</option>
           <option value="comfyui">comfyui</option>
           <option value="chatgpt">chatgpt</option>
+          <option value="grok">grok</option>
         </select>
         <button type="submit">Search</button>
         <button id="rescan" type="button">Rescan</button>
@@ -31,6 +32,7 @@
               <button type="button" data-source="">All</button>
               <button type="button" data-source="comfyui">ComfyUI</button>
               <button type="button" data-source="chatgpt">ChatGPT</button>
+              <button type="button" data-source="grok">Grok</button>
             </div>
             <div class="viewToggle" id="viewToggle" aria-label="Gallery view">
               <button type="button" data-view="grid" title="Grid view" aria-label="Grid view">Grid</button>
@@ -40,7 +42,7 @@
           <div class="uploadControls">
             <label class="dropZone" id="dropZone">
               <input id="fileInput" type="file" multiple accept=".png,.jpg,.jpeg,image/png,image/jpeg">
-              <span id="dropLabel">Drop ComfyUI* or ChatGPT* images, or choose files</span>
+              <span id="dropLabel">Drop ComfyUI*, ChatGPT*, or Grok* images, or choose files</span>
             </label>
             <button id="uploadButton" type="button" disabled>Upload</button>
           </div>

@@ -30,6 +30,7 @@ const dropZone = document.querySelector("#dropZone");
 const fileInput = document.querySelector("#fileInput");
 const uploadButton = document.querySelector("#uploadButton");
 const uploadList = document.querySelector("#uploadList");
+const PROMPT_UPLOAD_SOURCES = ["chatgpt", "grok"];
 
 search.value = state.q;
 source.value = state.source;
@@ -181,11 +182,16 @@ function inferredUploadSource(file) {
   const lower = file.name.toLowerCase();
   if (lower.startsWith("comfyui")) return "comfyui";
   if (lower.startsWith("chatgpt")) return "chatgpt";
+  if (lower.startsWith("grok")) return "grok";
   return "";
 }
 
 function isSupportedUploadSource(value) {
-  return value === "comfyui" || value === "chatgpt";
+  return value === "comfyui" || PROMPT_UPLOAD_SOURCES.includes(value);
+}
+
+function isPromptUploadSource(value) {
+  return PROMPT_UPLOAD_SOURCES.includes(value);
 }
 
 function isInspectableUpload(file) {
@@ -239,12 +245,13 @@ function renderUploadList(options = {}) {
       const key = fileKey(file);
       const defaultTitle = inspected?.metadata?.title || file.name;
       const titleValue = state.uploadTitles.get(key) ?? defaultTitle;
-      const promptValue = state.uploadPrompts.get(key) ?? (kind === "chatgpt" ? (inspected?.metadata?.prompt || "") : "");
+      const promptValue = state.uploadPrompts.get(key) ?? (isPromptUploadSource(kind) ? (inspected?.metadata?.prompt || "") : "");
       const sourceSelect = `
         <select class="uploadSourceSelect" data-source-key="${escapeHtml(key)}" aria-label="Source for ${escapeHtml(file.name)}">
           <option value=""${kind ? "" : " selected"}>Source</option>
           <option value="comfyui"${kind === "comfyui" ? " selected" : ""}>ComfyUI</option>
           <option value="chatgpt"${kind === "chatgpt" ? " selected" : ""}>ChatGPT</option>
+          <option value="grok"${kind === "grok" ? " selected" : ""}>Grok</option>
         </select>
       `;
       const titleDisplay =
@@ -261,17 +268,17 @@ function renderUploadList(options = {}) {
           `
           : "";
       const promptInput =
-        kind === "chatgpt" && inspected
+        isPromptUploadSource(kind) && inspected
           ? `
             <label class="uploadField">
               <textarea data-prompt-key="${escapeHtml(key)}" placeholder="Prompt for ${escapeHtml(file.name)}">${escapeHtml(promptValue)}</textarea>
             </label>
           `
           : "";
-      let status = "Choose ComfyUI or ChatGPT";
+      let status = "Choose ComfyUI, ChatGPT, or Grok";
       if (kind === "comfyui") {
         status = "ComfyUI metadata will be parsed after upload";
-      } else if (kind === "chatgpt") {
+      } else if (isPromptUploadSource(kind)) {
         status = inspected
           ? hasXmp
             ? "Will use image metadata"
@@ -475,7 +482,12 @@ uploadButton.addEventListener("click", async () => {
   uploadButton.disabled = true;
   try {
     const comfyFiles = state.uploadFiles.filter((file) => uploadSource(file) === "comfyui");
-    const chatgptFiles = state.uploadFiles.filter((file) => uploadSource(file) === "chatgpt");
+    const promptFilesBySource = new Map(
+      PROMPT_UPLOAD_SOURCES.map((promptSource) => [
+        promptSource,
+        state.uploadFiles.filter((file) => uploadSource(file) === promptSource),
+      ]),
+    );
     const unknownFiles = state.uploadFiles.filter((file) => !uploadSource(file));
     if (unknownFiles.length) {
       throw new Error(`Choose a source for ${unknownFiles[0].name}`);
@@ -505,22 +517,24 @@ uploadButton.addEventListener("click", async () => {
       if (!response.ok) throw new Error(`ComfyUI upload failed: ${response.status}`);
     }
 
-    if (chatgptFiles.length) {
-      const chatgptData = new FormData();
-      chatgptFiles.forEach((file) => chatgptData.append("files", file));
-      const prompts = new Map(
-        Array.from(uploadList.querySelectorAll("[data-prompt-key]")).map((textarea) => [
-          textarea.dataset.promptKey,
-          textarea.value,
-        ]),
-      );
-      const titles = new Map(
-        Array.from(uploadList.querySelectorAll("[data-title-key]")).map((input) => [
-          input.dataset.titleKey,
-          input.value,
-        ]),
-      );
-      const metadata = chatgptFiles.map((file) => {
+    const prompts = new Map(
+      Array.from(uploadList.querySelectorAll("[data-prompt-key]")).map((textarea) => [
+        textarea.dataset.promptKey,
+        textarea.value,
+      ]),
+    );
+    const titles = new Map(
+      Array.from(uploadList.querySelectorAll("[data-title-key]")).map((input) => [
+        input.dataset.titleKey,
+        input.value,
+      ]),
+    );
+    for (const promptSource of PROMPT_UPLOAD_SOURCES) {
+      const promptFiles = promptFilesBySource.get(promptSource) || [];
+      if (!promptFiles.length) continue;
+      const promptData = new FormData();
+      promptFiles.forEach((file) => promptData.append("files", file));
+      const metadata = promptFiles.map((file) => {
         const inspected = state.inspectItems.get(fileKey(file));
         const prompt = prompts.get(fileKey(file)) || "";
         const title = (titles.get(fileKey(file)) || file.name).trim() || file.name;
@@ -529,20 +543,19 @@ uploadButton.addEventListener("click", async () => {
         }
         return {
           filename: file.name,
-          source: "chatgpt",
+          source: promptSource,
           title,
           prompt,
           generated_at: parseGeneratedFromName(file),
           mtime: fileMtimeIso(file),
-          model: "image2",
         };
       });
-      chatgptData.append("metadata", JSON.stringify(metadata));
-      const response = await fetch("/api/uploads/chatgpt", {
+      promptData.append("metadata", JSON.stringify(metadata));
+      const response = await fetch(`/api/uploads/${promptSource}`, {
         method: "POST",
-        body: chatgptData,
+        body: promptData,
       });
-      if (!response.ok) throw new Error(`ChatGPT upload failed: ${response.status}`);
+      if (!response.ok) throw new Error(`${promptSource} upload failed: ${response.status}`);
     }
     state.uploadFiles = [];
     state.uploadSources = new Map();

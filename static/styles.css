@@ -248,6 +248,11 @@ main {
   color: #27643b;
 }
 
+.uploadType.grok {
+  background: #fff1e3;
+  color: #9a4b00;
+}
+
 .uploadType.unknown {
   background: #ffecec;
   color: #a93b3b;
@@ -431,6 +436,11 @@ main {
 .badge.chatgpt {
   background: #eaf7ef;
   color: #27643b;
+}
+
+.badge.grok {
+  background: #fff1e3;
+  color: #9a4b00;
 }
 
 .badge.error {

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-service ComfyUI and ChatGPT image gallery."""
+"""Single-service ComfyUI and prompt-XMP image gallery."""
 
 from __future__ import annotations
 
@@ -38,6 +38,7 @@ BASE_DIR = Path(__file__).resolve().parent
 PHOTO_ROOT = Path(os.environ.get("PROMPT_VIEWER_PHOTO_ROOT", BASE_DIR / "photos")).resolve()
 COMFY_ROOT = PHOTO_ROOT / "comfyui"
 CHATGPT_ROOT = PHOTO_ROOT / "chatgpt"
+GROK_ROOT = PHOTO_ROOT / "grok"
 THUMB_ROOT = Path(
     os.environ.get("PROMPT_VIEWER_THUMB_ROOT", BASE_DIR / ".prompt_viewer_thumbs")
 ).resolve()
@@ -49,10 +50,28 @@ THUMB_MAX_EDGE = 720
 
 SOURCE_COMFYUI = "comfyui"
 SOURCE_CHATGPT = "chatgpt"
-SOURCES = {SOURCE_COMFYUI, SOURCE_CHATGPT}
+SOURCE_GROK = "grok"
+SOURCES = {SOURCE_COMFYUI, SOURCE_CHATGPT, SOURCE_GROK}
 PARSER_COMFY_PNG = "comfy_png_summary"
 PARSER_CHATGPT_XMP = "chatgpt_xmp"
+PARSER_GROK_XMP = "grok_xmp"
 DEFAULT_CHATGPT_MODEL = "image2"
+DEFAULT_GROK_MODEL = "grok_imagine"
+PROMPT_XMP_SOURCES = {
+    SOURCE_CHATGPT: {
+        "root": CHATGPT_ROOT,
+        "parser": PARSER_CHATGPT_XMP,
+        "default_model": DEFAULT_CHATGPT_MODEL,
+        "class_type": "ChatGPT",
+    },
+    SOURCE_GROK: {
+        "root": GROK_ROOT,
+        "parser": PARSER_GROK_XMP,
+        "default_model": DEFAULT_GROK_MODEL,
+        "class_type": "Grok",
+    },
+}
+PROMPT_XMP_SUFFIXES = {".png", ".jpg", ".jpeg"}
 
 XMP_PACKET_HEADER = b"http://ns.adobe.com/xap/1.0/\x00"
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -84,6 +103,7 @@ def init_dirs() -> None:
     PHOTO_ROOT.mkdir(exist_ok=True)
     COMFY_ROOT.mkdir(parents=True, exist_ok=True)
     CHATGPT_ROOT.mkdir(parents=True, exist_ok=True)
+    GROK_ROOT.mkdir(parents=True, exist_ok=True)
     THUMB_ROOT.mkdir(exist_ok=True)
 
 
@@ -247,6 +267,34 @@ def safe_upload_name(filename: str) -> str:
 
 def thumb_path(image_id: int) -> Path:
     return THUMB_ROOT / f"{image_id}.jpg"
+
+
+def prompt_xmp_source_config(source: str) -> dict[str, Any]:
+    config = PROMPT_XMP_SOURCES.get(source)
+    if not config:
+        raise ValueError(f"Unsupported prompt-XMP source: {source}")
+    return config
+
+
+def detect_image_container(path: Path) -> str | None:
+    try:
+        header = path.read_bytes()[:16]
+    except OSError:
+        return None
+    if header.startswith(PNG_SIGNATURE):
+        return "png"
+    if header.startswith(b"\xff\xd8"):
+        return "jpeg"
+    return None
+
+
+def media_type_for_path(path: Path) -> str:
+    container = detect_image_container(path)
+    if container == "png":
+        return "image/png"
+    if container == "jpeg":
+        return "image/jpeg"
+    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 
 def generate_thumbnail(path: Path, image_id: int) -> None:
@@ -505,11 +553,11 @@ def write_jpeg_xmp(path: Path, xml_text: str) -> None:
 
 
 def read_xmp(path: Path) -> dict[str, str] | None:
-    suffix = path.suffix.lower()
+    container = detect_image_container(path)
     xml_text = None
-    if suffix == ".png":
+    if container == "png":
         xml_text = read_png_xmp(path)
-    elif suffix in {".jpg", ".jpeg"}:
+    elif container == "jpeg":
         xml_text = read_jpeg_xmp(path)
     if not xml_text:
         return None
@@ -546,13 +594,13 @@ def write_xmp(
             raise ValueError(f"Unsupported source: {source}")
         fields["source"] = source
     xml_text = build_xmp_xml(**fields)
-    suffix = path.suffix.lower()
-    if suffix == ".png":
+    container = detect_image_container(path)
+    if container == "png":
         write_png_xmp(path, xml_text)
-    elif suffix in {".jpg", ".jpeg"}:
+    elif container == "jpeg":
         write_jpeg_xmp(path, xml_text)
     else:
-        raise ValueError(f"Unsupported XMP image type: {suffix}")
+        raise ValueError("Unsupported XMP image type")
 
 
 def parse_comfy_png(path: Path) -> dict[str, Any]:
@@ -592,12 +640,14 @@ def parse_comfy_png(path: Path) -> dict[str, Any]:
     }
 
 
-def parse_chatgpt_image(path: Path) -> dict[str, Any]:
+def parse_prompt_xmp_image(path: Path, source: str) -> dict[str, Any]:
+    config = prompt_xmp_source_config(source)
     xmp = read_xmp(path) or {}
     title = xmp.get("title") or path.name
     prompt = xmp.get("prompt", "")
     generated_at = xmp.get("generated_at") or fallback_generated_at(path)
-    model = xmp.get("model") or DEFAULT_CHATGPT_MODEL
+    model = xmp.get("model") or str(config["default_model"])
+    class_type = str(config["class_type"])
     metadata_keys = [
         key
         for key, value in {
@@ -614,7 +664,7 @@ def parse_chatgpt_image(path: Path) -> dict[str, Any]:
         "models": [
             {
                 "node": "xmp",
-                "class_type": "ChatGPT",
+                "class_type": class_type,
                 "field": "model",
                 "model": model,
             }
@@ -624,7 +674,7 @@ def parse_chatgpt_image(path: Path) -> dict[str, Any]:
         "loras": [],
         "longest_prompt": {
             "node": "xmp",
-            "class_type": "ChatGPT",
+            "class_type": class_type,
             "length": len(prompt),
             "text": prompt,
         }
@@ -651,17 +701,22 @@ def source_from_path(path: Path) -> str | None:
         pass
     try:
         resolved.relative_to(CHATGPT_ROOT.resolve())
-        return SOURCE_CHATGPT if resolved.suffix.lower() in {".png", ".jpg", ".jpeg"} else None
+        return SOURCE_CHATGPT if resolved.suffix.lower() in PROMPT_XMP_SUFFIXES else None
+    except ValueError:
+        pass
+    try:
+        resolved.relative_to(GROK_ROOT.resolve())
+        return SOURCE_GROK if resolved.suffix.lower() in PROMPT_XMP_SUFFIXES else None
     except ValueError:
         return None
 
 
 def parser_for_source(path: Path, source: str) -> str | None:
-    suffix = path.suffix.lower()
-    if source == SOURCE_COMFYUI and suffix == ".png":
+    container = detect_image_container(path)
+    if source == SOURCE_COMFYUI and container == "png":
         return PARSER_COMFY_PNG
-    if source == SOURCE_CHATGPT and suffix in {".png", ".jpg", ".jpeg"}:
-        return PARSER_CHATGPT_XMP
+    if source in PROMPT_XMP_SOURCES and container in {"png", "jpeg"}:
+        return str(prompt_xmp_source_config(source)["parser"])
     return None
 
 
@@ -681,8 +736,8 @@ def image_source_and_parser(path: Path) -> tuple[str, str] | None:
 def parse_image_metadata(path: Path, source: str) -> dict[str, Any]:
     if source == SOURCE_COMFYUI:
         return parse_comfy_png(path)
-    if source == SOURCE_CHATGPT:
-        return parse_chatgpt_image(path)
+    if source in PROMPT_XMP_SOURCES:
+        return parse_prompt_xmp_image(path, source)
     raise ValueError(f"Unsupported source: {source}")
 
 
@@ -887,10 +942,7 @@ def sync_deleted_images(current_paths: set[str], source: str) -> int:
 
 def scan_photos() -> dict[str, int]:
     count = 0
-    current_by_source: dict[str, set[str]] = {
-        SOURCE_COMFYUI: set(),
-        SOURCE_CHATGPT: set(),
-    }
+    current_by_source: dict[str, set[str]] = {source: set() for source in SOURCES}
     with scan_lock:
         for path in PHOTO_ROOT.rglob("*"):
             if not is_photo_image(path):
@@ -1038,7 +1090,7 @@ def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, Any]]:
             "prompt": str(item.get("prompt") or ""),
             "has_prompt": "prompt" in item,
             "generated_at": str(item.get("generated_at") or ""),
-            "model": str(item.get("model") or DEFAULT_CHATGPT_MODEL),
+            "model": str(item.get("model") or "") if "model" in item else "",
             "source": str(item.get("source") or ""),
             "mtime": str(item.get("mtime") or ""),
         }
@@ -1054,7 +1106,7 @@ def metadata_source_for_endpoint(supplied: dict[str, str], expected: str) -> str
     return source
 
 
-def has_chatgpt_metadata(metadata: dict[str, str] | None) -> bool:
+def has_prompt_xmp_metadata(metadata: dict[str, str] | None) -> bool:
     if not metadata:
         return False
     return any(metadata.get(key) for key in ("prompt", "generated_at", "model"))
@@ -1076,15 +1128,27 @@ async def inspect_uploaded_images(files: list[UploadFile]) -> dict[str, Any]:
                 }
             )
             continue
-        tmp = CHATGPT_ROOT / f".inspect-{time.time_ns()}-{name}"
+        tmp = PHOTO_ROOT / f".inspect-{time.time_ns()}-{name}"
         await save_upload_file(upload, tmp)
         try:
+            container = detect_image_container(tmp)
+            if container not in {"png", "jpeg"}:
+                items.append(
+                    {
+                        "file_name": name,
+                        "supported": False,
+                        "has_xmp": False,
+                        "metadata": {},
+                        "error": "Image metadata inspect supports valid PNG and JPEG files.",
+                    }
+                )
+                continue
             metadata = read_xmp(tmp) or {}
             items.append(
                 {
                     "file_name": name,
                     "supported": True,
-                    "has_xmp": has_chatgpt_metadata(metadata),
+                    "has_xmp": has_prompt_xmp_metadata(metadata),
                     "metadata": metadata,
                     "generated_at_fallback": fallback_generated_at(tmp),
                 }
@@ -1146,6 +1210,11 @@ async def inspect_chatgpt_uploads(files: list[UploadFile] = File(...)) -> dict[s
     return await inspect_uploaded_images(files)
 
 
+@app.post("/api/uploads/grok/inspect")
+async def inspect_grok_uploads(files: list[UploadFile] = File(...)) -> dict[str, Any]:
+    return await inspect_uploaded_images(files)
+
+
 @app.post("/api/uploads/comfyui")
 async def upload_comfyui(
     files: list[UploadFile] = File(...),
@@ -1161,6 +1230,12 @@ async def upload_comfyui(
         source = metadata_source_for_endpoint(supplied, SOURCE_COMFYUI)
         target = COMFY_ROOT / name
         await save_upload_file(upload, target)
+        if detect_image_container(target) != "png":
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+            raise HTTPException(status_code=400, detail=f"{name} is not a valid PNG file")
         title = supplied.get("title", "").strip()
         existing_xmp = read_xmp(target) or {}
         generated_at = None
@@ -1184,25 +1259,48 @@ async def upload_chatgpt(
     files: list[UploadFile] = File(...),
     metadata: str | None = Form(None),
 ) -> dict[str, Any]:
+    return await upload_prompt_xmp_source(files, metadata, SOURCE_CHATGPT)
+
+
+@app.post("/api/uploads/grok")
+async def upload_grok(
+    files: list[UploadFile] = File(...),
+    metadata: str | None = Form(None),
+) -> dict[str, Any]:
+    return await upload_prompt_xmp_source(files, metadata, SOURCE_GROK)
+
+
+async def upload_prompt_xmp_source(
+    files: list[UploadFile],
+    metadata: str | None,
+    expected_source: str,
+) -> dict[str, Any]:
     submitted = parse_upload_metadata(metadata)
     items = []
     for upload in files:
         name = safe_upload_name(upload.filename or "")
         suffix = Path(name).suffix.lower()
-        if suffix not in {".png", ".jpg", ".jpeg"}:
+        if suffix not in PROMPT_XMP_SUFFIXES:
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG/JPEG file")
         supplied = submitted.get(name, {})
-        source = metadata_source_for_endpoint(supplied, SOURCE_CHATGPT)
-        target = CHATGPT_ROOT / name
+        source = metadata_source_for_endpoint(supplied, expected_source)
+        target = Path(prompt_xmp_source_config(source)["root"]) / name
         await save_upload_file(upload, target)
+        if detect_image_container(target) not in {"png", "jpeg"}:
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+            raise HTTPException(status_code=400, detail=f"{name} is not a valid PNG/JPEG file")
         existing_xmp = read_xmp(target) or {}
         title = supplied.get("title", "").strip()
-        if not has_chatgpt_metadata(existing_xmp):
+        default_model = str(prompt_xmp_source_config(source)["default_model"])
+        if not has_prompt_xmp_metadata(existing_xmp):
             prompt = supplied.get("prompt", "") if supplied.get("has_prompt") else ""
             generated_at = supplied.get("generated_at") or generated_at_from_upload(
                 target, supplied.get("mtime", "")
             )
-            model = supplied.get("model") or DEFAULT_CHATGPT_MODEL
+            model = supplied.get("model") or default_model
             write_xmp(target, prompt, generated_at, model, title or existing_xmp.get("title") or name, source)
         else:
             prompt = supplied.get("prompt", "") if supplied.get("has_prompt") else None
@@ -1340,10 +1438,10 @@ def update_image_metadata(
             status_code=400,
             detail=f"Unsupported metadata fields: {', '.join(sorted(unknown))}",
         )
-    if "prompt" in payload and row["source"] != SOURCE_CHATGPT:
+    if "prompt" in payload and row["source"] not in PROMPT_XMP_SOURCES:
         raise HTTPException(
             status_code=400,
-            detail="Prompt edits are only supported for ChatGPT images",
+            detail="Prompt edits are only supported for ChatGPT and Grok images",
         )
 
     title = None
@@ -1369,7 +1467,7 @@ def media(image_id: int) -> FileResponse:
     path = Path(row["absolute_path"])
     if not path.is_file():
         raise HTTPException(status_code=404, detail="File missing on disk")
-    return FileResponse(path, media_type=mimetypes.guess_type(path.name)[0] or "image/png")
+    return FileResponse(path, media_type=media_type_for_path(path))
 
 
 @app.get("/thumbs/{image_id}")
