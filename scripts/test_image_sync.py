@@ -964,6 +964,52 @@ def test_image_delete_api_removes_file_db_and_thumb(images: TestImages) -> None:
         raise AssertionError(f"Trash file should be ignored by scan: {rescan}")
 
 
+def test_image_detail_includes_related_images_by_title_or_prompt(images: TestImages) -> None:
+    reset_state()
+    comfy = copy_to_comfy(images.comfyui[0])
+    chatgpt = app.CHATGPT_ROOT / "20260415_010203_chatgpt.png"
+    grok = app.GROK_ROOT / "20260415_020304_grok.png"
+    create_png(chatgpt)
+    create_png(grok)
+    app.write_xmp(
+        chatgpt,
+        "shared prompt",
+        "2026-04-15T01:02:03+08:00",
+        "image2",
+        "shared title",
+        "chatgpt",
+    )
+    app.write_xmp(
+        grok,
+        "shared prompt",
+        "2026-04-15T02:03:04+08:00",
+        "grok_imagine",
+        "different title",
+        "grok",
+    )
+    app.write_xmp(comfy, title="shared title", source="comfyui")
+    app.scan_photos()
+
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT id FROM images WHERE source = ?", (app.SOURCE_CHATGPT,)
+        ).fetchone()
+    client = TestClient(app.app)
+    response = client.get(f"/api/images/{row['id']}")
+    if response.status_code != 200:
+        raise AssertionError(f"Image detail failed: {response.text}")
+    data = response.json()
+    related_ids = [item["id"] for item in data["related_images"]]
+    if data["id"] in related_ids:
+        raise AssertionError("Current image should not appear in related_images")
+    if len(related_ids) != 2:
+        raise AssertionError(f"Expected 2 related images, got {data['related_images']}")
+    related_sources = {item["source"] for item in data["related_images"]}
+    if related_sources != {"comfyui", "grok"}:
+        raise AssertionError(f"Unexpected related image sources: {data['related_images']}")
+
+
 def test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection(images: TestImages) -> None:
     reset_state()
     chatgpt = app.CHATGPT_ROOT / "20260405_010203_chatgpt.png"
@@ -1079,6 +1125,7 @@ def main() -> int:
         test_comfyui_filename_date_parser,
         test_default_title_and_title_search,
         test_image_delete_api_removes_file_db_and_thumb,
+        test_image_detail_includes_related_images_by_title_or_prompt,
         test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection,
     )
     try:

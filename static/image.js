@@ -110,6 +110,27 @@ function renderXmpDebug(metadata) {
   `;
 }
 
+function renderRelatedThumbs(items) {
+  if (!items?.length) return '<p class="listEmpty">None</p>';
+  return `
+    <div class="relatedThumbs">
+      ${items
+        .map(
+          (item) => `
+            <a
+              class="relatedThumb"
+              href="${imageHref(item.id)}"
+              title="${escapeHtml(item.title || item.file_name)}"
+            >
+              <img src="${item.thumb_url}" alt="${escapeHtml(item.title || item.file_name)}">
+            </a>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
 function updateSizeMode() {
   document.body.classList.toggle("originalSizeMode", state.originalSize);
   previewImage.classList.toggle("originalSize", state.originalSize);
@@ -185,6 +206,7 @@ function renderDetail(item) {
       <dt>Size</dt><dd>${escapeHtml(fmtSizeKb(item.size_bytes))}</dd>
       <dt>Date</dt><dd>${escapeHtml(displayDate)}</dd>
     </dl>
+    ${renderRelatedThumbs(item.related_images)}
     <h2 class="sectionTitle">Prompt</h2>
     ${
       PROMPT_EDITABLE_SOURCES.has(item.source)

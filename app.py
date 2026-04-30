@@ -1076,6 +1076,32 @@ def row_to_summary(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def related_images_for(row: sqlite3.Row) -> list[dict[str, Any]]:
+    title = str(row["title"] or "").strip()
+    prompt = str(row["longest_prompt_text"] or "")
+    clauses = []
+    params: list[Any] = [int(row["id"])]
+    if title:
+        clauses.append("title = ?")
+        params.append(title)
+    if prompt:
+        clauses.append("longest_prompt_text = ?")
+        params.append(prompt)
+    if not clauses:
+        return []
+    where_sql = " OR ".join(clauses)
+    with db_lock, connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT * FROM images
+            WHERE id != ? AND ({where_sql})
+            ORDER BY COALESCE(generated_at, '') DESC, mtime DESC, id DESC
+            """,
+            params,
+        ).fetchall()
+    return [row_to_summary(item) for item in rows]
+
+
 def fetch_image_row(image_id: int) -> sqlite3.Row:
     with db_lock, connect() as conn:
         row = conn.execute("SELECT * FROM images WHERE id = ?", (image_id,)).fetchone()
@@ -1446,6 +1472,7 @@ def image_detail(image_id: int) -> dict[str, Any]:
     detail["loras"] = loras
     detail["raw_metadata"] = raw_metadata
     detail["xmp_metadata"] = read_xmp(Path(row["absolute_path"])) or {}
+    detail["related_images"] = related_images_for(row)
     return detail
 
 

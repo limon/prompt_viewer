@@ -766,6 +766,36 @@ main {
   overflow-wrap: anywhere;
 }
 
+.relatedThumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 20px 0 8px;
+}
+
+.relatedThumb {
+  display: block;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border: 2px solid #dbe2eb;
+  border-radius: 10px;
+  background: #edf1f6;
+}
+
+.relatedThumb:hover,
+.relatedThumb:focus {
+  border-color: #23559f;
+}
+
+.relatedThumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 25%;
+}
+
 .viewerDangerZone {
   position: fixed;
   right: 18px;
