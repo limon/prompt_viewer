@@ -24,6 +24,7 @@ const previewFrame = document.querySelector("#previewFrame");
 const previewImage = document.querySelector("#previewImage");
 const detail = document.querySelector("#detail");
 const PROMPT_EDITABLE_SOURCES = new Set(["chatgpt", "grok"]);
+let deleteInFlight = false;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -208,8 +209,20 @@ function renderDetail(item) {
         : ""
     }
     ${renderXmpDebug(item.xmp_metadata)}
+    <div class="viewerDangerZone">
+      <div class="dangerConfirm" id="deleteConfirmBox" hidden>
+        <p class="dangerConfirmText">Delete this image?</p>
+        <div class="dangerConfirmActions">
+          <button id="confirmDeleteButton" class="dangerButton" type="button">Delete</button>
+          <button id="cancelDeleteButton" class="subtleButton" type="button">Cancel</button>
+        </div>
+        <p id="deleteStatus" class="dangerStatus" hidden></p>
+      </div>
+      <button id="deleteImageButton" class="dangerButton" type="button">Delete</button>
+    </div>
   `;
   bindInlineEditors(item);
+  bindDeleteButton(item);
   updateSizeMode();
 }
 
@@ -238,6 +251,67 @@ function bindInlineEditors(item) {
       requestAnimationFrame(() => startInlineEdit(element, item));
     }
   }
+}
+
+function deleteTargetHref() {
+  if (state.selectedIndex >= 0) {
+    const nextItem = state.items[state.selectedIndex + 1];
+    if (nextItem) return imageHref(nextItem.id);
+    const prevItem = state.items[state.selectedIndex - 1];
+    if (prevItem) return imageHref(prevItem.id);
+  }
+  const params = listParams(state.page);
+  return `/?${params.toString()}`;
+}
+
+function bindDeleteButton(item) {
+  const button = detail.querySelector("#deleteImageButton");
+  const confirmBox = detail.querySelector("#deleteConfirmBox");
+  const confirmButton = detail.querySelector("#confirmDeleteButton");
+  const cancelButton = detail.querySelector("#cancelDeleteButton");
+  const status = detail.querySelector("#deleteStatus");
+  if (!button || !confirmBox || !confirmButton || !cancelButton || !status) return;
+
+  const closeConfirm = () => {
+    if (deleteInFlight) return;
+    confirmBox.hidden = true;
+    button.hidden = false;
+    status.hidden = true;
+    status.textContent = "";
+  };
+
+  button.addEventListener("click", () => {
+    if (deleteInFlight) return;
+    button.hidden = true;
+    confirmBox.hidden = false;
+    status.hidden = true;
+    status.textContent = "";
+  });
+
+  cancelButton.addEventListener("click", closeConfirm);
+
+  confirmButton.addEventListener("click", async () => {
+    if (deleteInFlight) return;
+    deleteInFlight = true;
+    confirmButton.disabled = true;
+    cancelButton.disabled = true;
+    confirmButton.textContent = "Deleting...";
+    try {
+      const response = await fetch(`/api/images/${item.id}`, { method: "DELETE" });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || `Delete failed: ${response.status}`);
+      }
+      window.location.href = deleteTargetHref();
+    } catch (error) {
+      deleteInFlight = false;
+      confirmButton.disabled = false;
+      cancelButton.disabled = false;
+      confirmButton.textContent = "Delete";
+      status.hidden = false;
+      status.textContent = error.message;
+    }
+  });
 }
 
 function fieldValue(item, field) {

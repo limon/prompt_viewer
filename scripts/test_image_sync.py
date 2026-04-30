@@ -49,7 +49,7 @@ def reset_state() -> None:
             pass
 
     app.init_dirs()
-    for root in (app.COMFY_ROOT, app.CHATGPT_ROOT, app.GROK_ROOT):
+    for root in (app.COMFY_ROOT, app.CHATGPT_ROOT, app.GROK_ROOT, app.TRASH_ROOT):
         for path in root.rglob("*"):
             if path.is_file():
                 path.unlink()
@@ -929,6 +929,41 @@ def test_default_title_and_title_search(images: TestImages) -> None:
         raise AssertionError(f"Title search did not find image: {search.text}")
 
 
+def test_image_delete_api_removes_file_db_and_thumb(images: TestImages) -> None:
+    reset_state()
+    source = copy_to_comfy(images.comfyui[0])
+    app.scan_photos()
+    with sqlite3.connect(app.DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT id FROM images").fetchone()
+    image_id = row["id"]
+    thumb = app.thumb_path(image_id)
+    if not thumb.is_file():
+        raise AssertionError("Expected thumbnail to exist before delete")
+    client = TestClient(app.app)
+    response = client.delete(f"/api/images/{image_id}")
+    if response.status_code != 200:
+        raise AssertionError(f"Image delete failed: {response.text}")
+    payload = response.json()
+    if source.exists():
+        raise AssertionError("Image file still exists in source folder after delete")
+    trashed_path = payload.get("trashed_path")
+    if not trashed_path:
+        raise AssertionError(f"Delete response did not return trashed_path: {payload}")
+    trash_target = app.PHOTO_ROOT / trashed_path
+    if not trash_target.is_file():
+        raise AssertionError(f"Image file was not moved to trash: {trash_target}")
+    if thumb.exists():
+        raise AssertionError("Thumbnail still exists after delete")
+    with sqlite3.connect(app.DB_PATH) as conn:
+        count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
+    if count != 0:
+        raise AssertionError("Image row still exists after delete")
+    rescan = app.scan_photos()
+    if rescan != {"scanned": 0, "deleted": 0}:
+        raise AssertionError(f"Trash file should be ignored by scan: {rescan}")
+
+
 def test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection(images: TestImages) -> None:
     reset_state()
     chatgpt = app.CHATGPT_ROOT / "20260405_010203_chatgpt.png"
@@ -1043,6 +1078,7 @@ def main() -> int:
         test_comfyui_upload_parses_metadata,
         test_comfyui_filename_date_parser,
         test_default_title_and_title_search,
+        test_image_delete_api_removes_file_db_and_thumb,
         test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection,
     )
     try:

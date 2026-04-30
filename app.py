@@ -39,6 +39,7 @@ PHOTO_ROOT = Path(os.environ.get("PROMPT_VIEWER_PHOTO_ROOT", BASE_DIR / "photos"
 COMFY_ROOT = PHOTO_ROOT / "comfyui"
 CHATGPT_ROOT = PHOTO_ROOT / "chatgpt"
 GROK_ROOT = PHOTO_ROOT / "grok"
+TRASH_ROOT = PHOTO_ROOT / ".trash"
 THUMB_ROOT = Path(
     os.environ.get("PROMPT_VIEWER_THUMB_ROOT", BASE_DIR / ".prompt_viewer_thumbs")
 ).resolve()
@@ -104,6 +105,7 @@ def init_dirs() -> None:
     COMFY_ROOT.mkdir(parents=True, exist_ok=True)
     CHATGPT_ROOT.mkdir(parents=True, exist_ok=True)
     GROK_ROOT.mkdir(parents=True, exist_ok=True)
+    TRASH_ROOT.mkdir(parents=True, exist_ok=True)
     THUMB_ROOT.mkdir(exist_ok=True)
 
 
@@ -185,6 +187,14 @@ def path_relative_to_photos(path: Path) -> str:
     return path.resolve().relative_to(PHOTO_ROOT.resolve()).as_posix()
 
 
+def is_in_trash(path: Path) -> bool:
+    try:
+        path.resolve().relative_to(TRASH_ROOT.resolve())
+        return True
+    except ValueError:
+        return False
+
+
 def is_supported_comfy_png(path: Path) -> bool:
     try:
         resolved = path.resolve()
@@ -207,8 +217,11 @@ def is_photo_image(path: Path) -> bool:
     if path.name.startswith("."):
         return False
     try:
-        path.resolve().relative_to(PHOTO_ROOT.resolve())
+        resolved = path.resolve()
+        resolved.relative_to(PHOTO_ROOT.resolve())
     except ValueError:
+        return False
+    if is_in_trash(resolved):
         return False
     return path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg"}
 
@@ -335,6 +348,20 @@ def delete_image_by_path(path: Path) -> None:
         ).fetchone()
     if row:
         delete_image(int(row["id"]))
+
+
+def trash_target_for(path: Path, source: str) -> Path:
+    target_dir = TRASH_ROOT / source
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir / path.name
+
+
+def move_image_to_trash(path: Path, source: str) -> Path:
+    target = trash_target_for(path, source)
+    if target.exists():
+        target.unlink()
+    path.replace(target)
+    return target
 
 
 def parse_xmp_xml(xml_text: str) -> dict[str, str]:
@@ -1459,6 +1486,24 @@ def update_image_metadata(
 
     upsert_image(path)
     return image_detail(image_id)
+
+
+@app.delete("/api/images/{image_id}")
+def delete_image_api(image_id: int) -> dict[str, Any]:
+    row = fetch_image_row(image_id)
+    path = Path(row["absolute_path"])
+    trashed_path = None
+    try:
+        if path.is_file():
+            trashed_path = move_image_to_trash(path, str(row["source"]))
+    except FileNotFoundError:
+        pass
+    delete_image(image_id)
+    return {
+        "deleted": True,
+        "image_id": image_id,
+        "trashed_path": path_relative_to_photos(trashed_path) if trashed_path else None,
+    }
 
 
 @app.get("/media/{image_id}")
