@@ -704,8 +704,10 @@ main {
 }
 
 .originalSizeMode .viewerPreviewFrame {
+  display: flex;
+  justify-content: center;
   max-height: none;
-  overflow: visible;
+  overflow: auto;
   border-radius: 0;
 }
 
