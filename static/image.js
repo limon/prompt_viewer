@@ -111,7 +111,7 @@ function renderXmpDebug(metadata) {
 }
 
 function renderRelatedThumbs(items) {
-  if (!items?.length) return '<p class="listEmpty">None</p>';
+  if (!items?.length || items.length <= 1) return "";
   return `
     <div class="relatedThumbs">
       ${items
