@@ -1001,13 +1001,28 @@ def test_image_detail_includes_related_images_by_title_or_prompt(images: TestIma
         raise AssertionError(f"Image detail failed: {response.text}")
     data = response.json()
     related_ids = [item["id"] for item in data["related_images"]]
-    if data["id"] in related_ids:
-        raise AssertionError("Current image should not appear in related_images")
-    if len(related_ids) != 2:
-        raise AssertionError(f"Expected 2 related images, got {data['related_images']}")
+    if len(related_ids) != 3:
+        raise AssertionError(f"Expected 3 related images including current, got {data['related_images']}")
     related_sources = {item["source"] for item in data["related_images"]}
-    if related_sources != {"comfyui", "grok"}:
+    if related_sources != {"comfyui", "chatgpt", "grok"}:
         raise AssertionError(f"Unexpected related image sources: {data['related_images']}")
+    if related_ids != sorted(
+        related_ids,
+        key=lambda image_id: next(
+            (
+                (
+                    item["generated_at"] or "",
+                    item["mtime"],
+                    item["id"],
+                )
+                for item in data["related_images"]
+                if item["id"] == image_id
+            ),
+            ("", 0, 0),
+        ),
+        reverse=True,
+    ):
+        raise AssertionError(f"related_images should follow the shared descending sort order: {data['related_images']}")
 
 
 def test_metadata_patch_chatgpt_grok_and_comfyui_prompt_rejection(images: TestImages) -> None:

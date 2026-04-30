@@ -115,8 +115,20 @@ function renderRelatedThumbs(items) {
   return `
     <div class="relatedThumbs">
       ${items
-        .map(
-          (item) => `
+        .map((item) => {
+          const current = String(item.id) === String(state.item?.id);
+          if (current) {
+            return `
+              <div
+                class="relatedThumb current"
+                aria-current="true"
+                title="${escapeHtml(item.title || item.file_name)}"
+              >
+                <img src="${item.thumb_url}" alt="${escapeHtml(item.title || item.file_name)}">
+              </div>
+            `;
+          }
+          return `
             <a
               class="relatedThumb"
               href="${imageHref(item.id)}"
@@ -124,8 +136,8 @@ function renderRelatedThumbs(items) {
             >
               <img src="${item.thumb_url}" alt="${escapeHtml(item.title || item.file_name)}">
             </a>
-          `,
-        )
+          `;
+        })
         .join("")}
     </div>
   `;

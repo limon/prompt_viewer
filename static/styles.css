@@ -788,6 +788,12 @@ main {
   border-color: #23559f;
 }
 
+.relatedThumb.current {
+  border-color: #20242c;
+  box-shadow: 0 0 0 3px rgba(35, 85, 159, 0.18);
+  cursor: default;
+}
+
 .relatedThumb img {
   display: block;
   width: 100%;

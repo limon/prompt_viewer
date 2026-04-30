@@ -1080,7 +1080,7 @@ def related_images_for(row: sqlite3.Row) -> list[dict[str, Any]]:
     title = str(row["title"] or "").strip()
     prompt = str(row["longest_prompt_text"] or "")
     clauses = []
-    params: list[Any] = [int(row["id"])]
+    params: list[Any] = []
     if title:
         clauses.append("title = ?")
         params.append(title)
@@ -1088,13 +1088,13 @@ def related_images_for(row: sqlite3.Row) -> list[dict[str, Any]]:
         clauses.append("longest_prompt_text = ?")
         params.append(prompt)
     if not clauses:
-        return []
+        return [row_to_summary(row)]
     where_sql = " OR ".join(clauses)
     with db_lock, connect() as conn:
         rows = conn.execute(
             f"""
             SELECT * FROM images
-            WHERE id != ? AND ({where_sql})
+            WHERE {where_sql}
             ORDER BY COALESCE(generated_at, '') DESC, mtime DESC, id DESC
             """,
             params,
