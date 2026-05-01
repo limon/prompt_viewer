@@ -16,6 +16,7 @@
   var prevImage = document.getElementById("prevImage");
   var nextImage = document.getElementById("nextImage");
   var positionLabel = document.getElementById("positionLabel");
+  var openOriginalLink = document.getElementById("openOriginalLink");
   var previewImage = document.getElementById("previewImage");
   var detail = document.getElementById("detail");
   var detailError = document.getElementById("detailError");
@@ -228,10 +229,10 @@
     document.title = title + " - Prompt Viewer Compact";
     previewImage.src = item.media_url;
     previewImage.alt = title;
+    openOriginalLink.href = item.media_url;
     detail.innerHTML = ''
       + '<div class="detailHeader">'
       + '<h1>' + escapeHtml(title) + '</h1>'
-      + '<p><a class="openOriginal" href="' + escapeHtml(item.media_url) + '" target="_blank" rel="noopener">Open original image</a></p>'
       + '</div>'
       + '<table class="kvTable">'
       + '<tr><th>Source</th><td>' + escapeHtml(item.source) + '</td></tr>'
@@ -344,6 +345,26 @@
   };
 
   nextImage.onclick = function () {
+    navigate(1);
+  };
+
+  previewImage.onclick = function (event) {
+    var rect;
+    var midpoint;
+    var clientX;
+    if (!previewImage.src) {
+      return;
+    }
+    rect = previewImage.getBoundingClientRect ? previewImage.getBoundingClientRect() : null;
+    if (!rect) {
+      return;
+    }
+    clientX = typeof event.clientX === "number" ? event.clientX : 0;
+    midpoint = rect.left + ((rect.right - rect.left) / 2);
+    if (clientX < midpoint) {
+      navigate(-1);
+      return;
+    }
     navigate(1);
   };
 

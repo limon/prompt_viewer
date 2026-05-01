@@ -97,6 +97,13 @@
     return "/api/images?" + buildQuery(page);
   }
 
+  function syncUrl() {
+    var url = "/compact?" + buildQuery(state.page);
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, document.title, url);
+    }
+  }
+
   function requestJson(url, callback) {
     var xhr = new XMLHttpRequest();
     xhr.open("GET", url, true);
@@ -225,6 +232,8 @@
   function updatePager(page, perPage, total) {
     var start = total === 0 ? 0 : (page - 1) * perPage + 1;
     var end = page * perPage;
+    state.page = page;
+    state.perPage = perPage;
     if (end > total) {
       end = total;
     }
@@ -232,6 +241,7 @@
     count.innerHTML = start + "-" + end + " of " + total + " images";
     prev.disabled = page <= 1;
     next.disabled = end >= total;
+    syncUrl();
   }
 
   function loadImages() {

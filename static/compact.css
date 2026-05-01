@@ -228,6 +228,7 @@ textarea {
   max-width: 100%;
   height: auto;
   margin: 0 auto;
+  cursor: pointer;
 }
 
 .compactDetail {
@@ -335,10 +336,6 @@ textarea {
   font-size: 12px;
   color: #555f69;
   text-align: center;
-}
-
-.openOriginal {
-  margin-top: 8px;
 }
 
 @media (max-width: 520px) {
