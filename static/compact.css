@@ -1,0 +1,378 @@
+:root {
+  color-scheme: light;
+  background: #f4f4f1;
+  color: #222222;
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: #f4f4f1;
+  color: #222222;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+a {
+  color: #114b87;
+}
+
+img {
+  border: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+.buttonLink {
+  display: inline-block;
+  min-height: 32px;
+  padding: 6px 12px;
+  border: 1px solid #bfc4c8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #222222;
+  text-decoration: none;
+  vertical-align: middle;
+}
+
+button[disabled] {
+  color: #7c848c;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 1px solid #bfc4c8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #222222;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.compactPage {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 12px;
+}
+
+.compactHeader {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #fcfcfa;
+}
+
+.compactHeader h1 {
+  margin: 0 0 10px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+
+.compactFilters .field {
+  margin-bottom: 10px;
+}
+
+.compactFilters label {
+  display: block;
+  margin-bottom: 4px;
+  color: #555f69;
+  font-size: 13px;
+}
+
+.compactActions {
+  margin-top: 12px;
+}
+
+.compactStatus {
+  margin-bottom: 10px;
+  color: #555f69;
+  font-size: 13px;
+}
+
+.compactStatus span {
+  display: inline-block;
+  margin-right: 10px;
+}
+
+.messageBox {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.errorBox {
+  border-color: #e4b8b8;
+  background: #fff6f6;
+  color: #8b2a2a;
+}
+
+.hidden {
+  display: none;
+}
+
+.compactGallery {
+  margin: 0 -6px;
+}
+
+.compactGallery:after,
+.compactPager:after,
+.compactDetailBar:after,
+.relatedList:after {
+  content: "";
+  display: table;
+  clear: both;
+}
+
+.cardWrap {
+  float: left;
+  width: 50%;
+}
+
+.cardLink {
+  display: block;
+  margin: 0 6px 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #222222;
+  text-decoration: none;
+  overflow: hidden;
+}
+
+.thumbFrame {
+  height: 170px;
+  background-color: #e9ecee;
+  background-position: center center;
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+.cardMeta {
+  padding: 8px 10px 10px;
+}
+
+.cardTitle {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: bold;
+  word-wrap: break-word;
+}
+
+.cardSub {
+  color: #555f69;
+  font-size: 12px;
+}
+
+.compactPager {
+  margin-top: 6px;
+}
+
+.compactPager button {
+  float: left;
+  margin-right: 8px;
+}
+
+.compactDetailBar {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #fcfcfa;
+}
+
+.compactDetailBar .buttonLink,
+.compactDetailBar button,
+.compactDetailBar span {
+  float: left;
+  margin-right: 8px;
+}
+
+.compactDetailBar span {
+  padding-top: 7px;
+  color: #555f69;
+  font-size: 13px;
+}
+
+.compactImageWrap {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.compactPreview {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.compactDetail {
+  padding: 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.detailHeader {
+  margin-bottom: 12px;
+}
+
+.detailHeader h1 {
+  margin: 0 0 8px;
+  font-size: 22px;
+  line-height: 1.25;
+  word-wrap: break-word;
+}
+
+.detailHeader p {
+  margin: 0;
+}
+
+.sectionTitle {
+  margin: 18px 0 8px;
+  font-size: 14px;
+  color: #444d56;
+  text-transform: uppercase;
+}
+
+.kvTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.kvTable th,
+.kvTable td {
+  padding: 8px 0;
+  border-bottom: 1px solid #eceff1;
+  text-align: left;
+  vertical-align: top;
+  word-wrap: break-word;
+}
+
+.kvTable th {
+  width: 110px;
+  padding-right: 12px;
+  color: #555f69;
+  font-weight: normal;
+}
+
+.contentBox {
+  padding: 10px 12px;
+  border: 1px solid #eceff1;
+  border-radius: 4px;
+  background: #fafbfb;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.simpleList {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.simpleList li {
+  margin-bottom: 8px;
+  word-wrap: break-word;
+}
+
+.itemHint {
+  display: block;
+  margin-top: 2px;
+  color: #555f69;
+  font-size: 12px;
+}
+
+.relatedList {
+  margin: 0 -4px;
+}
+
+.relatedItem {
+  float: left;
+  width: 72px;
+  margin: 0 4px 8px;
+  text-decoration: none;
+  color: #222222;
+}
+
+.relatedThumb {
+  display: block;
+  width: 72px;
+  height: 72px;
+  background: #e9ecee;
+}
+
+.relatedThumb img {
+  display: block;
+  width: 72px;
+  height: 72px;
+}
+
+.relatedCurrent {
+  font-size: 12px;
+  color: #555f69;
+  text-align: center;
+}
+
+.openOriginal {
+  margin-top: 8px;
+}
+
+@media (max-width: 520px) {
+  .compactPage {
+    padding: 8px;
+  }
+
+  .cardWrap {
+    float: none;
+    width: auto;
+  }
+
+  .thumbFrame {
+    height: 148px;
+  }
+
+  .compactDetailBar .buttonLink,
+  .compactDetailBar button,
+  .compactDetailBar span {
+    margin-bottom: 8px;
+  }
+
+  .kvTable th,
+  .kvTable td {
+    display: block;
+    width: auto;
+  }
+
+  .kvTable th {
+    padding-bottom: 2px;
+    border-bottom: 0;
+  }
+
+  .kvTable td {
+    padding-top: 0;
+  }
+}

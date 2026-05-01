@@ -1248,9 +1248,19 @@ def index() -> FileResponse:
     return FileResponse(STATIC_ROOT / "index.html")
 
 
+@app.get("/compact")
+def compact_index() -> FileResponse:
+    return FileResponse(STATIC_ROOT / "compact.html")
+
+
 @app.get("/image/{image_id}")
 def image_page(image_id: int) -> FileResponse:
     return FileResponse(STATIC_ROOT / "image.html")
+
+
+@app.get("/compact/image/{image_id}")
+def compact_image_page(image_id: int) -> FileResponse:
+    return FileResponse(STATIC_ROOT / "compact-image.html")
 
 
 @app.post("/api/uploads/inspect")

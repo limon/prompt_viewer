@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Prompt Viewer Compact</title>
+    <link rel="stylesheet" href="/static/compact.css">
+  </head>
+  <body>
+    <div class="compactPage">
+      <div class="compactHeader">
+        <h1>Prompt Viewer</h1>
+        <form id="filters" class="compactFilters">
+          <div class="field">
+            <label for="search">Search</label>
+            <input id="search" type="search" placeholder="Title, file, prompt, model, LoRA, source">
+          </div>
+          <div class="field fieldSource">
+            <label for="source">Source</label>
+            <select id="source">
+              <option value="">All sources</option>
+              <option value="comfyui">comfyui</option>
+              <option value="chatgpt">chatgpt</option>
+              <option value="grok">grok</option>
+            </select>
+          </div>
+          <div class="compactActions">
+            <button type="submit">Apply</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="compactStatus">
+        <span id="pageLabel">Page 1</span>
+        <span id="count">Loading images...</span>
+      </div>
+
+      <div id="errorBox" class="messageBox errorBox hidden"></div>
+      <div id="emptyBox" class="messageBox hidden">No images found.</div>
+      <div id="gallery" class="compactGallery"></div>
+
+      <div class="compactPager">
+        <button id="prev" type="button">Previous</button>
+        <button id="next" type="button">Next</button>
+      </div>
+    </div>
+
+    <script src="/static/compact.js"></script>
+  </body>
+</html>

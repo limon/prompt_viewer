@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Prompt Viewer Compact Image</title>
+    <link rel="stylesheet" href="/static/compact.css">
+  </head>
+  <body>
+    <div class="compactPage compactDetailPage">
+      <div class="compactDetailBar">
+        <a id="backLink" class="buttonLink" href="/compact">Gallery</a>
+        <button id="prevImage" type="button">Previous</button>
+        <span id="positionLabel"></span>
+        <button id="nextImage" type="button">Next</button>
+      </div>
+
+      <div id="detailError" class="messageBox errorBox hidden"></div>
+
+      <div class="compactImageWrap">
+        <img id="previewImage" class="compactPreview" alt="">
+      </div>
+
+      <div id="detail" class="compactDetail">
+        <div class="messageBox">Loading image...</div>
+      </div>
+    </div>
+
+    <script src="/static/compact-image.js"></script>
+  </body>
+</html>
