@@ -210,10 +210,12 @@ textarea {
 
 .compactDetailBar .buttonLink,
 .compactDetailBar button {
+  box-sizing: border-box;
   height: 34px;
   min-height: 34px;
   padding: 6px 12px;
   line-height: 20px;
+  text-align: center;
 }
 
 .compactDetailBar span {
