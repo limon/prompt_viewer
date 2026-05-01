@@ -18,6 +18,7 @@
   var positionLabel = document.getElementById("positionLabel");
   var openOriginalLink = document.getElementById("openOriginalLink");
   var previewImage = document.getElementById("previewImage");
+  var relatedBlock = document.getElementById("relatedBlock");
   var detail = document.getElementById("detail");
   var detailError = document.getElementById("detailError");
 
@@ -223,6 +224,7 @@
   function renderDetail(item) {
     var prompt = "-";
     var title = item.title || item.file_name;
+    var relatedHtml = "";
     if (item.longest_prompt_detail && item.longest_prompt_detail.text) {
       prompt = item.longest_prompt_detail.text;
     }
@@ -230,6 +232,16 @@
     previewImage.src = item.media_url;
     previewImage.alt = title;
     openOriginalLink.href = item.media_url;
+    relatedHtml = item.related_images && item.related_images.length > 1
+      ? '<h2 class="sectionTitle relatedTitle">Related</h2>' + renderRelated(item.related_images, item.id)
+      : "";
+    if (relatedHtml) {
+      relatedBlock.innerHTML = relatedHtml;
+      relatedBlock.className = "compactRelated";
+    } else {
+      relatedBlock.innerHTML = "";
+      relatedBlock.className = "compactRelated hidden";
+    }
     detail.innerHTML = ''
       + '<div class="detailHeader">'
       + '<h1>' + escapeHtml(title) + '</h1>'
@@ -246,8 +258,7 @@
       + '<div class="contentBox">' + escapeHtml(prompt) + '</div>'
       + '<h2 class="sectionTitle">Models</h2>'
       + renderSimpleList(item.models, "model")
-      + (item.source === "comfyui" ? '<h2 class="sectionTitle">LoRAs</h2>' + renderSimpleList(item.loras, "lora") : '')
-      + (item.related_images && item.related_images.length > 1 ? '<h2 class="sectionTitle">Related</h2>' + renderRelated(item.related_images, item.id) : '');
+      + (item.source === "comfyui" ? '<h2 class="sectionTitle">LoRAs</h2>' + renderSimpleList(item.loras, "lora") : '');
   }
 
   function updateContext(data, id) {

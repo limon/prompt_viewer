@@ -208,8 +208,17 @@ textarea {
   margin-right: 8px;
 }
 
+.compactDetailBar .buttonLink,
+.compactDetailBar button {
+  height: 34px;
+  min-height: 34px;
+  padding: 6px 12px;
+  line-height: 20px;
+}
+
 .compactDetailBar span {
-  padding-top: 7px;
+  min-height: 34px;
+  padding-top: 8px;
   color: #555f69;
   font-size: 13px;
 }
@@ -238,6 +247,14 @@ textarea {
   background: #ffffff;
 }
 
+.compactRelated {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid #d8dddf;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
 .detailHeader {
   margin-bottom: 12px;
 }
@@ -258,6 +275,11 @@ textarea {
   font-size: 14px;
   color: #444d56;
   text-transform: uppercase;
+}
+
+.compactRelated .sectionTitle,
+.relatedTitle {
+  margin-top: 0;
 }
 
 .kvTable {
