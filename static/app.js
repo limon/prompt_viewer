@@ -1,9 +1,21 @@
+function readListStateFromUrl() {
+  const query = new URLSearchParams(window.location.search);
+  return {
+    page: Number(query.get("page") || 1),
+    perPage: Number(query.get("per_page") || 48),
+    q: query.get("q") || "",
+    source: query.get("source") || "",
+  };
+}
+
+const initialListState = readListStateFromUrl();
+
 const state = {
-  page: Number(new URLSearchParams(window.location.search).get("page") || 1),
-  perPage: Number(new URLSearchParams(window.location.search).get("per_page") || 48),
+  page: initialListState.page,
+  perPage: initialListState.perPage,
   total: 0,
-  q: new URLSearchParams(window.location.search).get("q") || "",
-  source: new URLSearchParams(window.location.search).get("source") || "",
+  q: initialListState.q,
+  source: initialListState.source,
   viewMode: localStorage.getItem("promptViewer.viewMode") || "masonry",
   uploadFiles: [],
   uploadSources: new Map(),
@@ -32,18 +44,35 @@ const uploadButton = document.querySelector("#uploadButton");
 const uploadList = document.querySelector("#uploadList");
 const PROMPT_UPLOAD_SOURCES = ["chatgpt", "grok"];
 
-search.value = state.q;
-source.value = state.source;
-
-async function fetchImagesPage(page) {
+function listParams(page = state.page) {
   const params = new URLSearchParams({
     page,
     per_page: state.perPage,
   });
   if (state.q) params.set("q", state.q);
   if (state.source) params.set("source", state.source);
+  return params;
+}
 
-  const response = await fetch(`/api/images?${params.toString()}`);
+function syncControlsFromState() {
+  search.value = state.q;
+  source.value = state.source;
+}
+
+function syncUrlFromState(options = {}) {
+  const { replace = false } = options;
+  const url = `/?${listParams().toString()}`;
+  if (replace) {
+    window.history.replaceState(null, "", url);
+    return;
+  }
+  window.history.pushState(null, "", url);
+}
+
+syncControlsFromState();
+
+async function fetchImagesPage(page) {
+  const response = await fetch(`/api/images?${listParams(page).toString()}`);
   if (!response.ok) throw new Error(`List failed: ${response.status}`);
   return response.json();
 }
@@ -87,13 +116,7 @@ function escapeHtml(value) {
 }
 
 function imageHref(id) {
-  const params = new URLSearchParams({
-    page: state.page,
-    per_page: state.perPage,
-  });
-  if (state.q) params.set("q", state.q);
-  if (state.source) params.set("source", state.source);
-  return `/image/${id}?${params.toString()}`;
+  return `/image/${id}?${listParams().toString()}`;
 }
 
 function renderGrid(items) {
@@ -406,6 +429,7 @@ filters.addEventListener("submit", (event) => {
   state.page = 1;
   state.q = search.value.trim();
   state.source = source.value;
+  syncUrlFromState();
   loadImages().catch((error) => {
     grid.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   });
@@ -415,8 +439,9 @@ sourceTabs.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   state.source = button.dataset.source;
-  source.value = state.source;
   state.page = 1;
+  syncControlsFromState();
+  syncUrlFromState();
   loadImages().catch((error) => {
     grid.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
   });
@@ -587,6 +612,7 @@ rescan.addEventListener("click", async () => {
 prev.addEventListener("click", () => {
   if (state.page > 1) {
     state.page -= 1;
+    syncUrlFromState();
     loadImages();
   }
 });
@@ -594,8 +620,21 @@ prev.addEventListener("click", () => {
 next.addEventListener("click", () => {
   if (state.page * state.perPage < state.total) {
     state.page += 1;
+    syncUrlFromState();
     loadImages();
   }
+});
+
+window.addEventListener("popstate", () => {
+  const nextState = readListStateFromUrl();
+  state.page = nextState.page;
+  state.perPage = nextState.perPage;
+  state.q = nextState.q;
+  state.source = nextState.source;
+  syncControlsFromState();
+  loadImages().catch((error) => {
+    grid.innerHTML = `<p class="empty">${escapeHtml(error.message)}</p>`;
+  });
 });
 
 loadImages().catch((error) => {
