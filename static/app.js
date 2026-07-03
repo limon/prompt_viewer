@@ -183,7 +183,7 @@ function inferredUploadSource(file) {
   if (lower.startsWith("comfyui")) return "comfyui";
   if (lower.startsWith("chatgpt")) return "chatgpt";
   if (lower.startsWith("grok")) return "grok";
-  return "";
+  return "comfyui";
 }
 
 function isSupportedUploadSource(value) {
