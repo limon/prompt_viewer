@@ -25,6 +25,7 @@ const previewImage = document.querySelector("#previewImage");
 const detail = document.querySelector("#detail");
 const PROMPT_EDITABLE_SOURCES = new Set(["chatgpt", "grok"]);
 let deleteInFlight = false;
+let copyPromptResetTimer = 0;
 
 function escapeHtml(value) {
   return String(value ?? "")
@@ -143,6 +144,29 @@ function renderRelatedThumbs(items) {
   `;
 }
 
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Copy command failed");
+    }
+  } finally {
+    textarea.remove();
+  }
+}
+
 function updateSizeMode() {
   document.body.classList.toggle("originalSizeMode", state.originalSize);
   previewImage.classList.toggle("originalSize", state.originalSize);
@@ -219,7 +243,16 @@ function renderDetail(item) {
       <dt>Date</dt><dd>${escapeHtml(displayDate)}</dd>
     </dl>
     ${renderRelatedThumbs(item.related_images)}
-    <h2 class="sectionTitle">Prompt</h2>
+    <div class="sectionHeader">
+      <h2 class="sectionTitle">Prompt</h2>
+      <button
+        id="copyPromptButton"
+        class="subtleButton copyPromptButton"
+        type="button"
+        ${prompt ? "" : "disabled"}
+      >Copy</button>
+      <span id="copyPromptStatus" class="copyPromptStatus" aria-live="polite"></span>
+    </div>
     ${
       PROMPT_EDITABLE_SOURCES.has(item.source)
         ? `
@@ -256,8 +289,42 @@ function renderDetail(item) {
     </div>
   `;
   bindInlineEditors(item);
+  bindCopyPrompt(prompt);
   bindDeleteButton(item);
   updateSizeMode();
+}
+
+function bindCopyPrompt(prompt) {
+  const button = detail.querySelector("#copyPromptButton");
+  const status = detail.querySelector("#copyPromptStatus");
+  if (!button || !status) return;
+
+  if (copyPromptResetTimer) {
+    window.clearTimeout(copyPromptResetTimer);
+    copyPromptResetTimer = 0;
+  }
+
+  const setStatus = (message) => {
+    status.textContent = message;
+    if (!message) return;
+    copyPromptResetTimer = window.setTimeout(() => {
+      status.textContent = "";
+      copyPromptResetTimer = 0;
+    }, 1600);
+  };
+
+  button.addEventListener("click", async () => {
+    if (!prompt) return;
+    button.disabled = true;
+    try {
+      await copyText(prompt);
+      setStatus("Copied");
+    } catch (_error) {
+      setStatus("Copy failed");
+    } finally {
+      button.disabled = false;
+    }
+  });
 }
 
 async function loadDetail(id) {

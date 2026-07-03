@@ -738,6 +738,28 @@ main {
   color: #3d4655;
 }
 
+.sectionHeader {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 20px 0 8px;
+}
+
+.sectionHeader .sectionTitle {
+  margin: 0;
+}
+
+.copyPromptButton {
+  min-height: 28px;
+  padding: 0 10px;
+}
+
+.copyPromptStatus {
+  color: #667084;
+  font-size: 12px;
+}
+
 .debugDetails {
   margin-top: 20px;
   border-top: 1px solid #e2e7ee;
