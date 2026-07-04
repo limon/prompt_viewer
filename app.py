@@ -278,6 +278,15 @@ def safe_upload_name(filename: str) -> str:
     return sanitized
 
 
+def conflict_upload_name(filename: str, counter: int) -> str:
+    original = Path(filename)
+    if counter == 0:
+        return original.name
+    stem = original.stem or "upload"
+    suffix = original.suffix
+    return f"{stem}-{counter}{suffix}"
+
+
 def thumb_path(image_id: int) -> Path:
     return THUMB_ROOT / f"{image_id}.jpg"
 
@@ -1124,6 +1133,28 @@ async def save_upload_file(upload: UploadFile, target: Path) -> None:
             pass
 
 
+async def save_new_upload_file(upload: UploadFile, root: Path, filename: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    tmp = root / f".{time.time_ns()}-{threading.get_ident()}-{filename}.uploading"
+    try:
+        with tmp.open("wb") as handle:
+            shutil.copyfileobj(upload.file, handle)
+
+        counter = 0
+        while True:
+            target = root / conflict_upload_name(filename, counter)
+            try:
+                os.link(tmp, target)
+                return target
+            except FileExistsError:
+                counter += 1
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def parse_upload_metadata(metadata: str | None) -> dict[str, dict[str, Any]]:
     if not metadata:
         return {}
@@ -1291,8 +1322,7 @@ async def upload_comfyui(
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG file")
         supplied = submitted.get(name, {})
         source = metadata_source_for_endpoint(supplied, SOURCE_COMFYUI)
-        target = COMFY_ROOT / name
-        await save_upload_file(upload, target)
+        target = await save_new_upload_file(upload, COMFY_ROOT, name)
         if detect_image_container(target) != "png":
             try:
                 target.unlink()
@@ -1347,8 +1377,7 @@ async def upload_prompt_xmp_source(
             raise HTTPException(status_code=400, detail=f"{name} is not a PNG/JPEG file")
         supplied = submitted.get(name, {})
         source = metadata_source_for_endpoint(supplied, expected_source)
-        target = Path(prompt_xmp_source_config(source)["root"]) / name
-        await save_upload_file(upload, target)
+        target = await save_new_upload_file(upload, Path(prompt_xmp_source_config(source)["root"]), name)
         if detect_image_container(target) not in {"png", "jpeg"}:
             try:
                 target.unlink()

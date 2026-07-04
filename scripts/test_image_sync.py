@@ -326,7 +326,7 @@ def test_grok_scan_restore_and_delete(_images: TestImages) -> None:
         raise AssertionError(f"Unexpected Grok delete scan result: {scan}")
 
 
-def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
+def test_chatgpt_upload_writes_xmp_and_renames_conflict(_images: TestImages) -> None:
     reset_state()
     with tempfile.TemporaryDirectory() as tmpdir:
         source = Path(tmpdir) / "20260404_050607_upload.png"
@@ -351,24 +351,32 @@ def test_chatgpt_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
             )
             if response.status_code != 200:
                 raise AssertionError(f"ChatGPT upload failed: {response.text}")
-        target = app.CHATGPT_ROOT / source.name
-        xmp = app.read_xmp(target)
-        if xmp != {
-            "title": "Uploaded Title",
-            "prompt": "uploaded prompt",
-            "generated_at": "2026-04-04T05:06:07+08:00",
-            "model": "image2",
-            "source": "chatgpt",
-        }:
-            raise AssertionError(f"Unexpected uploaded XMP: {xmp}")
+        targets = [
+            app.CHATGPT_ROOT / source.name,
+            app.CHATGPT_ROOT / "20260404_050607_upload-1.png",
+        ]
+        for target in targets:
+            xmp = app.read_xmp(target)
+            if xmp != {
+                "title": "Uploaded Title",
+                "prompt": "uploaded prompt",
+                "generated_at": "2026-04-04T05:06:07+08:00",
+                "model": "image2",
+                "source": "chatgpt",
+            }:
+                raise AssertionError(f"Unexpected uploaded XMP for {target.name}: {xmp}")
         with sqlite3.connect(app.DB_PATH) as conn:
             count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
-            row = conn.execute("SELECT title, longest_prompt_text FROM images").fetchone()
-        if count != 1 or row[0] != "Uploaded Title" or row[1] != "uploaded prompt":
-            raise AssertionError("ChatGPT same-name upload did not upsert correctly")
+            rows = conn.execute(
+                "SELECT file_name, title, longest_prompt_text FROM images ORDER BY file_name"
+            ).fetchall()
+        if count != 2 or [row[0] for row in rows] != [targets[1].name, targets[0].name]:
+            raise AssertionError(f"ChatGPT same-name upload did not create renamed files: {rows}")
+        if any(row[1] != "Uploaded Title" or row[2] != "uploaded prompt" for row in rows):
+            raise AssertionError(f"ChatGPT renamed uploads did not preserve metadata: {rows}")
 
 
-def test_grok_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
+def test_grok_upload_writes_xmp_and_renames_conflict(_images: TestImages) -> None:
     reset_state()
     with tempfile.TemporaryDirectory() as tmpdir:
         source = Path(tmpdir) / "20260404_050607_grok_upload.png"
@@ -392,21 +400,34 @@ def test_grok_upload_writes_xmp_and_overwrites(_images: TestImages) -> None:
             )
             if response.status_code != 200:
                 raise AssertionError(f"Grok upload failed: {response.text}")
-        target = app.GROK_ROOT / source.name
-        xmp = app.read_xmp(target)
-        if xmp != {
-            "title": "Uploaded Grok Title",
-            "prompt": "uploaded grok prompt",
-            "generated_at": "2026-04-04T05:06:07+08:00",
-            "model": "grok_imagine",
-            "source": "grok",
-        }:
-            raise AssertionError(f"Unexpected uploaded Grok XMP: {xmp}")
+        targets = [
+            app.GROK_ROOT / source.name,
+            app.GROK_ROOT / "20260404_050607_grok_upload-1.png",
+        ]
+        for target in targets:
+            xmp = app.read_xmp(target)
+            if xmp != {
+                "title": "Uploaded Grok Title",
+                "prompt": "uploaded grok prompt",
+                "generated_at": "2026-04-04T05:06:07+08:00",
+                "model": "grok_imagine",
+                "source": "grok",
+            }:
+                raise AssertionError(f"Unexpected uploaded Grok XMP for {target.name}: {xmp}")
         with sqlite3.connect(app.DB_PATH) as conn:
             count = conn.execute("SELECT COUNT(*) FROM images").fetchone()[0]
-            row = conn.execute("SELECT source, title, longest_prompt_text FROM images").fetchone()
-        if count != 1 or row[0] != "grok" or row[1] != "Uploaded Grok Title" or row[2] != "uploaded grok prompt":
-            raise AssertionError("Grok same-name upload did not upsert correctly")
+            rows = conn.execute(
+                "SELECT source, file_name, title, longest_prompt_text FROM images ORDER BY file_name"
+            ).fetchall()
+        if count != 2 or [row[1] for row in rows] != [targets[1].name, targets[0].name]:
+            raise AssertionError(f"Grok same-name upload did not create renamed files: {rows}")
+        if any(
+            row[0] != "grok"
+            or row[2] != "Uploaded Grok Title"
+            or row[3] != "uploaded grok prompt"
+            for row in rows
+        ):
+            raise AssertionError(f"Grok renamed uploads did not preserve metadata: {rows}")
 
 
 def test_grok_upload_accepts_jpeg_content_with_png_extension(_images: TestImages) -> None:
@@ -889,6 +910,58 @@ def test_comfyui_upload_parses_metadata(images: TestImages) -> None:
         raise AssertionError(f"ComfyUI upload did not write title XMP: {xmp}")
 
 
+def test_comfyui_upload_renames_conflict(images: TestImages) -> None:
+    reset_state()
+    source = images.comfyui[0]
+    client = TestClient(app.app)
+    metadata = json.dumps(
+        [
+            {
+                "filename": source.name,
+                "source": "comfyui",
+                "title": "Renamed ComfyUI Title",
+                "mtime": "2026-04-09T10:11:12+08:00",
+            }
+        ]
+    )
+    for _ in range(2):
+        response = client.post(
+            "/api/uploads/comfyui",
+            files=[("files", (source.name, source.read_bytes(), "image/png"))],
+            data={"metadata": metadata},
+        )
+        if response.status_code != 200:
+            raise AssertionError(f"ComfyUI upload failed: {response.text}")
+
+    renamed_name = f"{source.stem}-1{source.suffix}"
+    targets = [app.COMFY_ROOT / source.name, app.COMFY_ROOT / renamed_name]
+    for target in targets:
+        if not target.exists():
+            raise AssertionError(f"Expected renamed ComfyUI upload to exist: {target}")
+        xmp = app.read_xmp(target)
+        if (
+            not xmp
+            or xmp.get("title") != "Renamed ComfyUI Title"
+            or xmp.get("source") != "comfyui"
+            or xmp.get("generated_at") != "2026-04-09T10:11:12+08:00"
+        ):
+            raise AssertionError(f"ComfyUI renamed upload did not write XMP: {xmp}")
+
+    with sqlite3.connect(app.DB_PATH) as conn:
+        rows = conn.execute(
+            "SELECT source, file_name, title, generated_at FROM images ORDER BY file_name"
+        ).fetchall()
+    if len(rows) != 2 or {row[1] for row in rows} != {source.name, renamed_name}:
+        raise AssertionError(f"ComfyUI same-name upload did not create renamed files: {rows}")
+    if any(
+        row[0] != "comfyui"
+        or row[2] != "Renamed ComfyUI Title"
+        or row[3] != "2026-04-09T10:11:12+08:00"
+        for row in rows
+    ):
+        raise AssertionError(f"ComfyUI renamed uploads did not preserve metadata: {rows}")
+
+
 def test_comfyui_filename_date_parser(images: TestImages) -> None:
     reset_state()
     target = app.COMFY_ROOT / "ComfyUI 2026-04-08 09_10_11.png"
@@ -1122,8 +1195,8 @@ def main() -> int:
         test_consistency_after_reset,
         test_chatgpt_scan_restore_and_delete,
         test_grok_scan_restore_and_delete,
-        test_chatgpt_upload_writes_xmp_and_overwrites,
-        test_grok_upload_writes_xmp_and_overwrites,
+        test_chatgpt_upload_writes_xmp_and_renames_conflict,
+        test_grok_upload_writes_xmp_and_renames_conflict,
         test_grok_upload_accepts_jpeg_content_with_png_extension,
         test_chatgpt_upload_existing_xmp_title_and_prompt_update,
         test_grok_upload_existing_xmp_title_and_prompt_update,
@@ -1137,6 +1210,7 @@ def main() -> int:
         test_chatgpt_named_fixture_upload,
         test_scan_writes_missing_source_and_uses_xmp_source,
         test_comfyui_upload_parses_metadata,
+        test_comfyui_upload_renames_conflict,
         test_comfyui_filename_date_parser,
         test_default_title_and_title_search,
         test_image_delete_api_removes_file_db_and_thumb,
